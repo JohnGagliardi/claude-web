@@ -6,11 +6,18 @@ import { tabFor } from "./browser.js";
 
 export const SERVER_NAME = "claude-web";
 
+export type SideArgs = { title: string; prompt: string; cwd?: string; worktree?: boolean };
+
 type Ctx = {
   key: string;
   cwd: string;
   terminals: Terminals;
   previews: Previews;
+  sides: {
+    start: (args: SideArgs) => Promise<unknown>;
+    list: () => unknown[];
+    send: (target: string, text: string) => string;
+  };
   // Shows the user what Claude's browser sees, in the Preview pane.
   onShot: (key: string, jpegBase64: string, url: string) => void;
 };
@@ -28,6 +35,7 @@ export const READ_ONLY_TOOLS = [
   "browser_screenshot",
   "browser_text",
   "browser_console",
+  "list_side_sessions",
 ].map((n) => `mcp__${SERVER_NAME}__${n}`);
 
 export function sessionTools(ctx: Ctx): McpSdkServerConfigWithInstance {
@@ -167,6 +175,22 @@ export function sessionTools(ctx: Ctx): McpSdkServerConfigWithInstance {
       ),
       tool("browser_console", "Recent console messages and page errors.", { limit: z.number().int().optional() }, async ({ limit }) =>
         guard(async () => text((await tabFor(ctx.key)).console.slice(-(limit ?? 50)).join("\n") || "(no console output)")),
+      ),
+      tool(
+        "start_side_session",
+        "Start a separate Claude session for a self-contained task the user can open, steer and review on its own. " +
+          "It runs in parallel; when it finishes a turn you receive a message with its report. Set worktree to give it its own git branch.",
+        { title: z.string(), prompt: z.string(), cwd: z.string().optional(), worktree: z.boolean().optional() },
+        async (args) => guard(async () => text(JSON.stringify(await ctx.sides.start(args)))),
+      ),
+      tool("list_side_sessions", "List the side sessions this session started and their state.", {}, async () =>
+        text(JSON.stringify(ctx.sides.list(), null, 2)),
+      ),
+      tool(
+        "message_side_session",
+        "Send a follow-up message to one of your side sessions (by its key or session id).",
+        { session: z.string(), text: z.string() },
+        async ({ session, text: body }) => guard(async () => text(ctx.sides.send(session, body))),
       ),
     ],
   });

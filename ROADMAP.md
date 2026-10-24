@@ -28,12 +28,12 @@ Mirror of the Claude desktop app's Code tab, minus account management.
 - [x] Claude's headless browser (installed Edge/Chrome via playwright-core), shown live in the Preview pane
 - [x] In-process MCP tools for Claude: terminal_list/read/run, preview_list/start/stop/logs, browser_navigate/screenshot/text/click/type/eval/console (read-only ones pre-approved)
 
-## Phase 4: scheduling and side sessions
+## Phase 4: scheduling and side sessions (done)
 
-- [ ] Scheduled tasks (cron) that start or message sessions
-- [ ] Side sessions started from a session, with linked status
-- [ ] Split view of two sessions
-- [ ] Browser notifications when a session finishes or needs approval
+- [x] Scheduled tasks (cron, via croner) that start a new session or message an existing one; Run now, pause, history
+- [x] Side sessions from the UI (⑃ Side) or by Claude (`start_side_session`), nested in the sidebar; each finished turn is reported to the parent
+- [x] Split view: two sessions side by side (⧉ or Ctrl+click), each with its own side pane
+- [x] Desktop notifications when a session finishes or needs approval while off screen; unread count in the tab title
 
 ## Later
 

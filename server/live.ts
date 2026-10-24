@@ -73,6 +73,7 @@ export type StartOptions = {
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
+  title?: string;
   // Per-session extras such as the app's MCP tools, built with the session key.
   extra?: (key: string) => Partial<Options>;
 };
@@ -105,6 +106,7 @@ export class LiveSession {
         ...opts.extra?.(this.key),
         cwd: opts.cwd,
         resume: opts.resume,
+        title: opts.title,
         model: opts.model,
         effort: opts.effort,
         permissionMode: this.permissionMode,
@@ -137,6 +139,17 @@ export class LiveSession {
     this.emit({ t: "live", session: this.summary() });
   }
 
+  private idWaiters: ((id: string) => void)[] = [];
+
+  // Resolves once Claude Code has assigned (or resumed) the session id.
+  sessionIdReady(timeoutMs = 60_000): Promise<string | undefined> {
+    if (this.sessionId) return Promise.resolve(this.sessionId);
+    return new Promise((resolve) => {
+      this.idWaiters.push(resolve);
+      setTimeout(() => resolve(this.sessionId), timeoutMs);
+    });
+  }
+
   private async pump() {
     try {
       for await (const msg of this.q) {
@@ -144,6 +157,7 @@ export class LiveSession {
           this.sessionId = msg.session_id;
           this.model = msg.model;
           this.permissionMode = msg.permissionMode;
+          for (const w of this.idWaiters.splice(0)) w(msg.session_id);
           this.changed();
         }
         if (msg.type === "result") {

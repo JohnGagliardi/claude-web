@@ -15,6 +15,8 @@ export type SessionInfo = {
   unread?: boolean;
   group?: string;
   autofix?: boolean;
+  parent?: string;
+  scheduleId?: string;
 };
 
 export type PendingPermission = {
@@ -46,6 +48,22 @@ export type Bootstrap = {
   home: string;
   terminals: TerminalInfo[];
   previews: PreviewInfo[];
+  schedules: Schedule[];
+};
+
+export type Schedule = {
+  id: string;
+  name: string;
+  cron: string;
+  prompt: string;
+  cwd: string;
+  target: "new" | "session";
+  sessionId?: string;
+  model?: string;
+  permissionMode?: PermissionMode;
+  enabled: boolean;
+  runs: { at: number; sessionId?: string; error?: string }[];
+  nextRun?: number;
 };
 
 export type TerminalInfo = { id: string; title: string; cwd: string; alive: boolean; exitCode?: number; byClaude?: boolean };

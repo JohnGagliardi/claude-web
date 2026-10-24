@@ -16,6 +16,9 @@ export type SessionMeta = {
   // Auto-fix watches the PR for this session's folder.
   autofix?: boolean;
   cwd?: string;
+  // Side sessions point at the session that started them.
+  parent?: string;
+  scheduleId?: string;
 };
 
 export type AppState = {

@@ -12,7 +12,7 @@ import {
   type ModelInfo,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
-import { LiveSession, type LiveEvent } from "./live.js";
+import { LiveSession, type LiveEvent, type LiveSummary } from "./live.js";
 import { getState, readConfig, updateSessionMeta, updateState } from "./state.js";
 import { reauthInfo, runReauth } from "./reauth.js";
 import { commitAll, createPr, createWorktree, prStatus, push, readFileFor, repoInfo, syncWithBase, workingDiff } from "./git.js";
@@ -20,7 +20,8 @@ import { startAutofix } from "./autofix.js";
 import { Terminals } from "./terminals.js";
 import { Previews, launchConfigs } from "./preview.js";
 import { closeBrowser, closeTab } from "./browser.js";
-import { READ_ONLY_TOOLS, SERVER_NAME, sessionTools } from "./tools.js";
+import { READ_ONLY_TOOLS, SERVER_NAME, sessionTools, type SideArgs } from "./tools.js";
+import { Scheduler } from "./schedules.js";
 
 const PORT = Number(process.env.PORT ?? readConfig().port ?? 3737);
 const DEV_PORT = 5173;
@@ -48,9 +49,16 @@ function onLiveEvent(ev: LiveEvent) {
     const s = live.get(ev.key);
     if (s?.sessionId) updateSessionMeta(s.sessionId, { unread: true });
     broadcast({ t: "sessions-changed" });
+    const link = sideLinks.get(ev.key);
+    if (link && s) {
+      const body = ev.msg.subtype === "success" ? ev.msg.result : `Stopped: ${ev.msg.subtype}`;
+      reportToParent(link, `[Side session "${link.title}" (${s.sessionId}) finished a turn]\n${body.slice(0, 1500)}`);
+    }
+    flushReports(ev.key);
   }
   if (ev.t === "closed") {
     live.delete(ev.key);
+    sideLinks.delete(ev.key);
     lastShot.delete(ev.key);
     void closeTab(ev.key);
     broadcast({ t: "sessions-changed" });
@@ -64,7 +72,7 @@ const previews = new Previews((list) => broadcast({ t: "preview:list", previews:
 const lastShot = new Map<string, { data: string; url: string }>();
 
 // Resuming a session that already has a live process reuses it.
-function startSession(opts: ConstructorParameters<typeof LiveSession>[0]) {
+function startSession(opts: ConstructorParameters<typeof LiveSession>[0]): LiveSession {
   const existing = opts.resume ? [...live.values()].find((x) => x.sessionId === opts.resume) : undefined;
   const session =
     existing ??
@@ -78,6 +86,11 @@ function startSession(opts: ConstructorParameters<typeof LiveSession>[0]) {
               cwd: opts.cwd,
               terminals,
               previews,
+              sides: {
+                start: (args) => startSide({ ...args, parentKey: key, cwd: args.cwd ?? opts.cwd }),
+                list: () => sideList(key),
+                send: (target, text) => sideSend(key, target, text),
+              },
               onShot: (k, data, url) => {
                 lastShot.set(k, { data, url });
                 broadcast({ t: "browser:shot", key: k, data, url });
@@ -92,6 +105,87 @@ function startSession(opts: ConstructorParameters<typeof LiveSession>[0]) {
   live.set(session.key, session);
   return session;
 }
+
+// --- Side sessions: sessions started from another session, which hear back
+// whenever a side session finishes a turn.
+type SideLink = { parentKey?: string; parentSessionId?: string; title: string };
+const sideLinks = new Map<string, SideLink>();
+const pendingReports = new Map<string, string[]>();
+
+const findLive = (keyOrId?: string) => (keyOrId ? live.get(keyOrId) ?? [...live.values()].find((s) => s.sessionId === keyOrId) : undefined);
+
+function reportToParent(link: SideLink, report: string) {
+  const parent = findLive(link.parentKey) ?? findLive(link.parentSessionId);
+  if (!parent) return; // The parent isn't open; the sidebar still shows the side session's state.
+  if (!parent.running && !parent.summary().pending.length) parent.send(report);
+  else pendingReports.set(parent.key, [...(pendingReports.get(parent.key) ?? []), report]);
+}
+
+function flushReports(key: string) {
+  const reports = pendingReports.get(key);
+  const s = live.get(key);
+  if (!reports?.length || !s) return;
+  pendingReports.delete(key);
+  s.send(reports.join("\n\n"));
+}
+
+async function startSide(args: SideArgs & { cwd: string; parentKey?: string; parentSessionId?: string }): Promise<LiveSummary> {
+  const parent = findLive(args.parentKey) ?? findLive(args.parentSessionId);
+  const parentSessionId = args.parentSessionId ?? parent?.sessionId;
+  let cwd = args.cwd;
+  if (args.worktree) cwd = (await createWorktree(cwd, args.title)).path;
+  const child = startSession({ cwd, title: args.title, permissionMode: parent?.permissionMode });
+  sideLinks.set(child.key, { parentKey: parent?.key, parentSessionId, title: args.title });
+  child.send(args.prompt);
+  void child.sessionIdReady().then((id) => {
+    if (id && parentSessionId) updateSessionMeta(id, { parent: parentSessionId, cwd });
+    broadcast({ t: "sessions-changed" });
+  });
+  return child.summary();
+}
+
+function sideList(parentKey: string) {
+  const parentId = live.get(parentKey)?.sessionId;
+  const fromLive = [...sideLinks.entries()]
+    .filter(([, l]) => l.parentKey === parentKey || (parentId && l.parentSessionId === parentId))
+    .map(([key, l]) => ({ ...live.get(key)?.summary(), title: l.title }));
+  const stored = Object.entries(getState().sessions)
+    .filter(([id, m]) => parentId && m.parent === parentId && !fromLive.some((s) => s.sessionId === id))
+    .map(([id, m]) => ({ sessionId: id, cwd: m.cwd, running: false, closed: true }));
+  return [...fromLive, ...stored];
+}
+
+function sideSend(parentKey: string, target: string, text: string) {
+  const parentId = live.get(parentKey)?.sessionId;
+  const child = findLive(target);
+  if (child) {
+    const link = sideLinks.get(child.key);
+    if (!link || (link.parentKey !== parentKey && link.parentSessionId !== parentId)) throw new Error("That session isn't one of yours.");
+    child.send(text);
+    return "Sent.";
+  }
+  const meta = getState().sessions[target];
+  if (!meta || meta.parent !== parentId || !meta.cwd) throw new Error("No such side session.");
+  const resumed = startSession({ cwd: meta.cwd, resume: target });
+  sideLinks.set(resumed.key, { parentKey, parentSessionId: parentId, title: target });
+  resumed.send(text);
+  return "Resumed and sent.";
+}
+
+const scheduler = new Scheduler(
+  async (s) => {
+    const session =
+      s.target === "session" && s.sessionId
+        ? startSession({ cwd: s.cwd, resume: s.sessionId })
+        : startSession({ cwd: s.cwd, model: s.model, permissionMode: s.permissionMode, title: `${s.name} · ${new Date().toLocaleString()}` });
+    session.send(s.prompt);
+    const id = await session.sessionIdReady();
+    if (id) updateSessionMeta(id, { scheduleId: s.id, cwd: s.cwd });
+    broadcast({ t: "sessions-changed" });
+    return id;
+  },
+  (list) => broadcast({ t: "schedules", schedules: list }),
+);
 
 startAutofix(
   (sessionId, cwd, text) => startSession({ cwd, resume: sessionId }).send(text),
@@ -140,6 +234,7 @@ api.get(
       live: [...live.values()].map((s) => s.summary()),
       terminals: terminals.list(),
       previews: previews.list(),
+      schedules: scheduler.list(),
       reauth: reauthInfo(),
       home: os.homedir(),
     });
@@ -246,6 +341,14 @@ api.post(
   }),
 );
 api.get("/preview/logs", (req, res) => res.json(previews.logs(String(req.query.id), { lines: 300 })));
+api.get("/schedules", (_req, res) => res.json(scheduler.list()));
+api.post("/schedules", wrap(async (req, res) => res.json(scheduler.upsert(req.body))));
+api.delete("/schedules/:id", (req, res) => {
+  scheduler.remove(String(req.params.id));
+  res.json({ ok: true });
+});
+api.post("/schedules/:id/run", wrap(async (req, res) => res.json(await scheduler.run(String(req.params.id)))));
+
 api.get("/browser/shot", (req, res) => res.json(lastShot.get(String(req.query.key)) ?? null));
 
 app.use("/api", api);
@@ -314,6 +417,11 @@ wss.on("connection", (ws) => {
         case "close":
           s?.close();
           break;
+        case "side": {
+          const session = await startSide({ title: m.title, prompt: m.text, cwd: m.cwd, worktree: m.worktree, parentKey: m.parentKey, parentSessionId: m.parentSessionId });
+          ws.send(JSON.stringify({ t: "side-started", ref: m.ref, session }));
+          break;
+        }
         case "term:open": {
           const t = terminals.open(m.cwd, { cols: m.cols, rows: m.rows });
           ws.send(JSON.stringify({ t: "term:opened", ref: m.ref, id: t.id }));

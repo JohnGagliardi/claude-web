@@ -1,3 +1,4 @@
+import type React from "react";
 import { useMemo, useState } from "react";
 import type { LiveSummary, SessionInfo } from "../api";
 
@@ -13,13 +14,15 @@ function ago(ms: number) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-export type SidebarItem = SessionInfo & { liveKey?: string; running?: boolean; needsYou?: boolean };
+export type SidebarItem = SessionInfo & { liveKey?: string; running?: boolean; needsYou?: boolean; depth?: number };
 
 export function Sidebar(props: {
   sessions: SessionInfo[];
   live: LiveSummary[];
   projects: string[];
-  selected?: { sessionId?: string; liveKey?: string };
+  selected: { sessionId?: string; liveKey?: string }[];
+  onSplit: (s: SidebarItem) => void;
+  footer?: React.ReactNode;
   newCwd: string;
   onNewCwd: (cwd: string) => void;
   useWorktree: boolean;
@@ -68,38 +71,60 @@ export function Sidebar(props: {
     const k = repoOf(s.cwd);
     groups.set(k, [...(groups.get(k) ?? []), s]);
   }
+  // Side sessions sit right under the session that started them.
+  const nest = (list: SidebarItem[]) => {
+    const ids = new Set(list.map((s) => s.sessionId));
+    const out: SidebarItem[] = [];
+    const add = (s: SidebarItem, depth: number) => {
+      out.push({ ...s, depth });
+      if (depth < 3) for (const c of list.filter((c) => c.parent && c.parent === s.sessionId)) add(c, depth + 1);
+    };
+    for (const s of list) if (!s.parent || !ids.has(s.parent)) add(s, 0);
+    return out;
+  };
 
   const isSel = (s: SidebarItem) =>
-    (!!s.sessionId && s.sessionId === props.selected?.sessionId) || (!!s.liveKey && s.liveKey === props.selected?.liveKey);
+    props.selected.some((v) => (!!s.sessionId && s.sessionId === v.sessionId) || (!!s.liveKey && s.liveKey === v.liveKey));
 
   const row = (s: SidebarItem) => (
     <div
       key={s.liveKey ?? s.sessionId}
       className={`session ${isSel(s) ? "sel" : ""}`}
-      onClick={() => props.onSelect(s)}
-      title={s.cwd}
+      style={s.depth ? { paddingLeft: 8 + s.depth * 14 } : undefined}
+      onClick={(e) => (e.ctrlKey || e.metaKey ? props.onSplit(s) : props.onSelect(s))}
+      title={`${s.cwd ?? ""}
+Ctrl+click to open in split view`}
     >
+      {!!s.depth && <span className="wt">⑃</span>}
       <span className={`status ${s.needsYou ? "needs" : s.running ? "running" : s.unread ? "unread" : ""}`} />
       <span className="title">{s.customTitle || s.summary || s.firstPrompt || "Untitled"}</span>
       {repoOf(s.cwd) !== (s.cwd ?? "") && <span className="wt" title="Runs in its own worktree">⑂</span>}
       <span className="when">{ago(s.lastModified)}</span>
-      {s.sessionId && (
+      {s.scheduleId && <span className="wt" title="Started by a schedule">⏱</span>}
+      {(s.sessionId || s.liveKey) && (
         <span className="actions" onClick={(e) => e.stopPropagation()}>
-          <button title={s.pinned ? "Unpin" : "Pin"} onClick={() => props.onMeta(s, { pinned: !s.pinned })}>
-            {s.pinned ? "★" : "☆"}
+          <button title="Open in split view" onClick={() => props.onSplit(s)}>
+            ⧉
           </button>
-          <button
-            title="Rename"
-            onClick={() => {
-              const t = prompt("Rename session", s.customTitle || s.summary);
-              if (t?.trim()) props.onMeta(s, { title: t.trim(), dir: s.cwd });
-            }}
-          >
-            ✎
-          </button>
-          <button title={s.archived ? "Unarchive" : "Archive"} onClick={() => props.onMeta(s, { archived: !s.archived })}>
-            {s.archived ? "↺" : "⌫"}
-          </button>
+          {s.sessionId && (
+            <>
+              <button title={s.pinned ? "Unpin" : "Pin"} onClick={() => props.onMeta(s, { pinned: !s.pinned })}>
+                {s.pinned ? "★" : "☆"}
+              </button>
+              <button
+                title="Rename"
+                onClick={() => {
+                  const t = prompt("Rename session", s.customTitle || s.summary);
+                  if (t?.trim()) props.onMeta(s, { title: t.trim(), dir: s.cwd });
+                }}
+              >
+                ✎
+              </button>
+              <button title={s.archived ? "Unarchive" : "Archive"} onClick={() => props.onMeta(s, { archived: !s.archived })}>
+                {s.archived ? "↺" : "⌫"}
+              </button>
+            </>
+          )}
           {s.archived && (
             <button title="Delete permanently" onClick={() => props.onDelete(s)}>
               🗑
@@ -132,7 +157,7 @@ export function Sidebar(props: {
         {pinned.length > 0 && (
           <div className="group">
             <div className="group-head">Pinned</div>
-            {pinned.map(row)}
+            {nest(pinned).map(row)}
           </div>
         )}
         {[...groups.entries()].map(([cwd, list]) => (
@@ -140,14 +165,17 @@ export function Sidebar(props: {
             <button className="group-head" onClick={() => setCollapsed({ ...collapsed, [cwd]: !collapsed[cwd] })} title={cwd}>
               {collapsed[cwd] ? "▸" : "▾"} {base(cwd)}
             </button>
-            {!collapsed[cwd] && list.map(row)}
+            {!collapsed[cwd] && nest(list).map(row)}
           </div>
         ))}
         {items.length === 0 && <div className="muted pad">No sessions</div>}
       </div>
-      <button className="link archived-toggle" onClick={() => setShowArchived(!showArchived)}>
-        {showArchived ? "← Back to sessions" : "Archived sessions"}
-      </button>
+      <div className="sidebar-foot">
+        <button className="link" onClick={() => setShowArchived(!showArchived)}>
+          {showArchived ? "← Back to sessions" : "Archived"}
+        </button>
+        {props.footer}
+      </div>
     </aside>
   );
 }

@@ -240,3 +240,34 @@ pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: var
 .frame { flex: 1; min-height: 0; width: 100%; border: none; background: #fff; }
 .shot { flex: 1; min-height: 0; overflow: auto; }
 .shot img { display: block; width: 100%; height: auto; }
+
+/* Split view, sidebar footer, schedules */
+.main { flex-direction: row; }
+.main > .empty, .main > .schedules { flex: 1; }
+.session-view { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main.split .session-view + .session-view { border-left: 1px solid var(--border); }
+.main.split .session-view.focused .topbar { box-shadow: inset 0 -2px 0 var(--accent); }
+.main.split .side-pane { width: min(50%, 520px); }
+.sidebar-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 4px; border-top: 1px solid var(--border); }
+.sidebar-foot .link.on { color: var(--accent); }
+.schedules { overflow-y: auto; padding: 20px 28px; display: flex; flex-direction: column; gap: 12px; max-width: 900px; }
+.sched-head { display: flex; align-items: center; }
+.sched-head h2 { margin: 0; font-size: 18px; }
+.sched { border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.sched.off { opacity: 0.65; }
+.sched-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sched-prompt { white-space: pre-wrap; max-height: 4.5em; overflow: hidden; }
+.runs { color: var(--muted); }
+.sched-editor { border: 1px solid var(--accent); border-radius: 10px; background: var(--card); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.sched-editor label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.sched-editor label > input, .sched-editor label > select, .sched-editor textarea { color: var(--text); font-size: 14px; }
+.sched-editor .row { display: flex; gap: 6px; }
+.sched-editor .row > * { flex: 1; min-width: 0; }
+@media (max-width: 1000px) {
+  .main.split { flex-direction: column; }
+  .main.split .session-view + .session-view { border-left: none; border-top: 1px solid var(--border); }
+}
+.topbar > button { flex: none; }
+.topbar-title .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.main.split .topbar { gap: 6px; padding: 8px 10px; }
+.main.split .topbar > button { padding: 3px 7px; font-size: 12px; }
