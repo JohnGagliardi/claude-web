@@ -5,7 +5,7 @@ import { Transcript } from "./components/Transcript";
 import { Composer, type Attachment, type ComposerSettings } from "./components/Composer";
 import { PermissionCard, type Reply } from "./components/Permission";
 import { SidePane, parseFileRef, type OpenFile, type PaneTab } from "./components/SidePane";
-import { OpenFileContext, SessionContext } from "./fileLinks";
+import { OpenFileContext, ReplyContext, SessionContext } from "./fileLinks";
 import { stored, store } from "./storage";
 
 export type View = { id: string; sessionId?: string; liveKey?: string; cwd: string };
@@ -234,14 +234,16 @@ export function SessionView(props: {
         </header>
         <div className="workspace">
           <div className="chat">
-            <Transcript items={items} partial={partial} running={running} />
+            <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
+              <Transcript items={items} partial={partial} running={running} />
+            </ReplyContext.Provider>
             <div className="dock">
               {current?.error && <div className="banner err">{current.error}</div>}
-              {todos && (
+              {todos && todos.some((t) => t.status !== "completed") && (
                 <div className="todos">
                   {todos.map((t, i) => (
                     <div key={i} className={`todo ${t.status}`}>
-                      <span>{t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○"}</span>
+                      <span className="todo-mark">{t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○"}</span>
                       {t.status === "in_progress" ? (t.activeForm ?? t.content) : t.content}
                     </div>
                   ))}

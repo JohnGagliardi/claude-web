@@ -25,6 +25,7 @@ import { Previews, launchConfigs } from "./preview.js";
 import { closeBrowser, closeTab } from "./browser.js";
 import { READ_ONLY_TOOLS, SERVER_NAME, sessionTools, type SideArgs } from "./tools.js";
 import { Scheduler } from "./schedules.js";
+import { fullHistory } from "./history.js";
 
 const PORT = Number(process.env.PORT ?? readConfig().port ?? 3737);
 const DEV_PORT = 5173;
@@ -260,7 +261,9 @@ api.get(
   "/sessions/:id/messages",
   wrap(async (req, res) => {
     const dir = typeof req.query.dir === "string" ? req.query.dir : undefined;
-    res.json(await getSessionMessages(String(req.params.id), { dir }));
+    const id = String(req.params.id);
+    const full = await fullHistory(id, dir).catch(() => undefined);
+    res.json(full ?? (await getSessionMessages(id, { dir })));
   }),
 );
 

@@ -193,9 +193,13 @@ export function Composer(props: {
           ))}
         </select>
         <span className="spacer" />
-        {props.running && <button onClick={props.onStop}>Stop</button>}
-        <button className="primary" disabled={(!text.trim() && !attachments.length) || props.disabled} onClick={send}>
-          Send
+        {props.running && (
+          <button className="round stop" onClick={props.onStop} title="Stop (Esc)">
+            ■
+          </button>
+        )}
+        <button className="round primary" disabled={(!text.trim() && !attachments.length) || props.disabled} onClick={send} title="Send (Enter)">
+          ↑
         </button>
       </div>
     </div>

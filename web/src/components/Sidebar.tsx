@@ -138,7 +138,9 @@ Ctrl+click to open in split view`}
   return (
     <aside className="sidebar">
       <div className="new-row">
-        <button className="primary" onClick={props.onNew}>+ New session</button>
+        <button className="new-session" onClick={props.onNew}>
+          <span className="plus-icon">+</span> New session
+        </button>
       </div>
       <div className="new-row">
         <select value={props.newCwd} onChange={(e) => (e.target.value === "__add" ? props.onAddProject() : props.onNewCwd(e.target.value))}>
