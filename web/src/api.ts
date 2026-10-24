@@ -49,6 +49,15 @@ export type Bootstrap = {
   terminals: TerminalInfo[];
   previews: PreviewInfo[];
   schedules: Schedule[];
+  settings: AppSettings;
+};
+
+export type AppSettings = {
+  defaultModel?: string;
+  defaultEffort?: Effort;
+  defaultPermissionMode: PermissionMode;
+  newSessionWorktree: boolean;
+  idleMinutes: number;
 };
 
 export type Schedule = {

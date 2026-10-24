@@ -65,6 +65,30 @@ export function updateSessionMeta(sessionId: string, patch: Partial<SessionMeta>
   });
 }
 
+// App-wide preferences edited on the Settings page.
+export type AppSettings = {
+  defaultModel?: string;
+  defaultEffort?: "low" | "medium" | "high" | "xhigh" | "max";
+  defaultPermissionMode: "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions";
+  newSessionWorktree: boolean;
+  // Live sessions idle this long are shut down; 0 keeps them forever.
+  idleMinutes: number;
+};
+
+const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
+let settings = readJson<AppSettings>(SETTINGS_FILE, { defaultPermissionMode: "default", newSessionWorktree: false, idleMinutes: 30 });
+
+export function getSettings(): AppSettings {
+  return settings;
+}
+
+export function updateSettings(patch: Partial<AppSettings>): AppSettings {
+  settings = { ...settings, ...patch };
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+  return settings;
+}
+
 export function readConfig(): DeviceConfig {
   return readJson<DeviceConfig>(CONFIG_FILE, {});
 }

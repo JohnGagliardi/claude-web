@@ -7,14 +7,17 @@ import { WebSocketServer, type WebSocket } from "ws";
 import {
   deleteSession,
   getSessionMessages,
+  getSubagentMessages,
   listSessions,
   renameSession,
   type ModelInfo,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
 import { LiveSession, type LiveEvent, type LiveSummary } from "./live.js";
-import { getState, readConfig, updateSessionMeta, updateState } from "./state.js";
-import { reauthInfo, runReauth } from "./reauth.js";
+import { DATA_DIR, getSettings, getState, readConfig, updateSessionMeta, updateSettings, updateState } from "./state.js";
+import { bundledClaudeExe, reauthInfo, runReauth } from "./reauth.js";
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { commitAll, createPr, createWorktree, prStatus, push, readFileFor, repoInfo, syncWithBase, workingDiff } from "./git.js";
 import { startAutofix } from "./autofix.js";
 import { Terminals } from "./terminals.js";
@@ -187,6 +190,15 @@ const scheduler = new Scheduler(
   (list) => broadcast({ t: "schedules", schedules: list }),
 );
 
+// Shut down live sessions nobody is using; the next message resumes them.
+setInterval(() => {
+  const minutes = getSettings().idleMinutes;
+  if (!minutes) return;
+  for (const s of live.values()) {
+    if (!s.running && !s.summary().pending.length && Date.now() - s.lastActive > minutes * 60_000) s.close();
+  }
+}, 60_000);
+
 startAutofix(
   (sessionId, cwd, text) => startSession({ cwd, resume: sessionId }).send(text),
   (sessionId) => [...live.values()].some((s) => s.sessionId === sessionId && (s.running || s.summary().pending.length > 0)),
@@ -235,6 +247,7 @@ api.get(
       terminals: terminals.list(),
       previews: previews.list(),
       schedules: scheduler.list(),
+      settings: getSettings(),
       reauth: reauthInfo(),
       home: os.homedir(),
     });
@@ -341,6 +354,41 @@ api.post(
   }),
 );
 api.get("/preview/logs", (req, res) => res.json(previews.logs(String(req.query.id), { lines: 300 })));
+api.get("/settings", (_req, res) => res.json(getSettings()));
+api.post("/settings", (req, res) => {
+  const next = updateSettings(req.body ?? {});
+  broadcast({ t: "settings", settings: next });
+  res.json(next);
+});
+
+// Read-only check of the credentials Claude Code will use on this device.
+api.get("/auth-status", (_req, res) => {
+  execFile(bundledClaudeExe() ?? "claude", ["auth", "status"], { timeout: 30_000, windowsHide: true }, (err, stdout, stderr) =>
+    res.json({ ok: !err, output: (stdout + stderr).trim() || String(err?.message ?? "") }),
+  );
+});
+
+// Non-image attachments are saved here and handed to Claude by path.
+api.post(
+  "/uploads",
+  wrap(async (req, res) => {
+    const name = path.basename(String(req.body?.name ?? "file")).replace(/[^\w.\- ]+/g, "_") || "file";
+    const dir = path.join(DATA_DIR, "uploads", randomUUID().slice(0, 8));
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, Buffer.from(String(req.body?.data ?? ""), "base64"));
+    res.json({ path: file });
+  }),
+);
+
+api.get(
+  "/sessions/:id/subagents/:agentId",
+  wrap(async (req, res) => {
+    const dir = typeof req.query.dir === "string" ? req.query.dir : undefined;
+    res.json(await getSubagentMessages(String(req.params.id), String(req.params.agentId), { dir }));
+  }),
+);
+
 api.get("/schedules", (_req, res) => res.json(scheduler.list()));
 api.post("/schedules", wrap(async (req, res) => res.json(scheduler.upsert(req.body))));
 api.delete("/schedules/:id", (req, res) => {
@@ -390,11 +438,11 @@ wss.on("connection", (ws) => {
           }
           const session = startSession({ cwd, resume: m.resume, model: m.model, effort: m.effort, permissionMode: m.permissionMode });
           ws.send(JSON.stringify({ t: "started", ref: m.ref, session: session.summary() }));
-          if (m.text) session.send(m.text);
+          if (m.content || m.text) session.send(m.content ?? m.text);
           break;
         }
         case "send":
-          s?.send(m.text);
+          s?.send(m.content ?? m.text);
           break;
         case "permission":
           s?.answerPermission(m.id, m.reply);

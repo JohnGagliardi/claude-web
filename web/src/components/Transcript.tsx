@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Item } from "../transcript";
-import { toolSummary } from "../transcript";
+import { buildItems, isAgentTool, toolSummary } from "../transcript";
+import { api, q, type RawMsg } from "../api";
 import { Markdown } from "./Markdown";
-import { useOpenFile } from "../fileLinks";
+import { useOpenFile, useSession } from "../fileLinks";
 
 const LIMIT = 4000;
 
@@ -67,8 +68,65 @@ function ToolBody({ name, input }: { name: string; input: any }) {
   return <Clipped text={JSON.stringify(input, null, 2)} />;
 }
 
+// Strips the model-facing "agentId: … / usage" trailer from a subagent's report.
+const agentReport = (text: string) => text.split(/\n\s*agentId: /)[0].trim();
+
+function AgentCard({ item }: { item: Extract<Item, { kind: "tool" }> }) {
+  const [open, setOpen] = useState(false);
+  const [stored, setStored] = useState<RawMsg[] | null>(null);
+  const { sessionId, cwd } = useSession();
+  const status = !item.result ? "running" : item.result.isError ? "error" : "ok";
+
+  // Finished subagents from earlier turns are read from their own transcript file.
+  useEffect(() => {
+    if (!open || item.children.length || !item.agentId || !sessionId || stored) return;
+    void api<RawMsg[]>(`/sessions/${sessionId}/subagents/${item.agentId}${q({ dir: cwd })}`)
+      .then(setStored)
+      .catch(() => setStored([]));
+  }, [open, item.agentId, item.children.length, sessionId]);
+
+  const msgs = item.children.length ? item.children : stored ?? [];
+  const nested = useMemo(() => buildItems(msgs.map((m) => ({ ...m, parent_tool_use_id: null }))), [msgs]);
+  const steps = nested.filter((n) => n.kind === "tool").length;
+  return (
+    <div className={`tool agent ${status}`}>
+      <button className="tool-head" onClick={() => setOpen(!open)}>
+        <span className="dot" />
+        <span className="tool-name">{item.input?.subagent_type ? `Agent · ${item.input.subagent_type}` : "Agent"}</span>
+        <span className="tool-sum">{item.input?.description ?? ""}</span>
+        {steps > 0 && <span className="muted small">{steps} steps</span>}
+        <span className="chev">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="tool-body">
+          {item.input?.prompt && (
+            <details>
+              <summary className="muted small">Prompt</summary>
+              <Markdown text={String(item.input.prompt)} />
+            </details>
+          )}
+          {nested.length > 0 ? (
+            <div className="nested">
+              <ItemList items={nested} />
+            </div>
+          ) : (
+            <div className="muted small">{item.result ? (item.agentId && sessionId && !stored ? "Loading…" : "No transcript available.") : "Working…"}</div>
+          )}
+          {item.result && (
+            <div className={item.result.isError ? "err" : ""}>
+              <div className="muted small">Report</div>
+              <Markdown text={agentReport(item.result.text) || "(empty)"} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolCard({ item }: { item: Extract<Item, { kind: "tool" }> }) {
   const [open, setOpen] = useState(false);
+  if (isAgentTool(item.name)) return <AgentCard item={item} />;
   const status = !item.result ? "running" : item.result.isError ? "error" : "ok";
   return (
     <div className={`tool ${status}`}>
@@ -119,13 +177,32 @@ export function Transcript({ items, partial, running }: { items: Item[]; partial
       }}
     >
       <div className="transcript-inner">
+        <ItemList items={items} />
+        {partial && <Markdown text={partial} />}
+        {running && !partial && <div className="working">Working…</div>}
+        <div ref={end} />
+      </div>
+    </div>
+  );
+}
+
+function ItemList({ items }: { items: Item[] }) {
+  return (
+    <>
         {items.map((it) => {
           switch (it.kind) {
             case "user":
               return (
                 <div key={it.id} className="user-msg">
+                  {it.images.length > 0 && (
+                    <div className="user-images">
+                      {it.images.map((src, i) => (
+                        <img key={i} src={src} alt="" />
+                      ))}
+                    </div>
+                  )}
+                  {it.documents > 0 && <div className="muted small">{it.documents} document(s) attached</div>}
                   {it.text}
-                  {it.images > 0 && <div className="muted">{it.images} image(s)</div>}
                 </div>
               );
             case "command":
@@ -142,10 +219,6 @@ export function Transcript({ items, partial, running }: { items: Item[]; partial
               return <div key={it.id} className="result">{it.text}</div>;
           }
         })}
-        {partial && <Markdown text={partial} />}
-        {running && !partial && <div className="working">Working…</div>}
-        <div ref={end} />
-      </div>
-    </div>
+    </>
   );
 }

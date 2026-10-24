@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, socket, type Bootstrap, type Catalog, type LiveSummary, type RawMsg } from "./api";
 import { buildItems, latestTodos } from "./transcript";
 import { Transcript } from "./components/Transcript";
-import { Composer, type ComposerSettings } from "./components/Composer";
+import { Composer, type Attachment, type ComposerSettings } from "./components/Composer";
 import { PermissionCard, type Reply } from "./components/Permission";
 import { SidePane, parseFileRef, type OpenFile, type PaneTab } from "./components/SidePane";
-import { OpenFileContext } from "./fileLinks";
+import { OpenFileContext, SessionContext } from "./fileLinks";
 import { stored, store } from "./storage";
 
 export type View = { id: string; sessionId?: string; liveKey?: string; cwd: string };
@@ -21,6 +21,13 @@ const loadCatalog = (cwd: string) => {
 export function findLive(live: LiveSummary[], v: Pick<View, "sessionId" | "liveKey"> | null | undefined) {
   if (!v) return undefined;
   return live.find((l) => (v.liveKey && l.key === v.liveKey) || (v.sessionId && l.sessionId === v.sessionId));
+}
+
+async function attachmentBlock(a: Attachment) {
+  if (a.kind === "image") return { type: "image", source: { type: "base64", media_type: a.mediaType, data: a.data } };
+  if (a.kind === "pdf") return { type: "document", source: { type: "base64", media_type: "application/pdf", data: a.data }, title: a.name };
+  const { path } = await api<{ path: string }>("/uploads", { json: { name: a.name, data: a.data } });
+  return { type: "text", text: `Attached file: ${path}` };
 }
 
 const PANE_BUTTONS: [PaneTab, string][] = [
@@ -50,7 +57,11 @@ export function SessionView(props: {
   const [liveLog, setLiveLog] = useState<RawMsg[]>([]);
   const [partial, setPartial] = useState("");
   const [catalog, setCatalog] = useState<Catalog>(emptyCatalog);
-  const [draft, setDraft] = useState<ComposerSettings>({ permissionMode: "default" });
+  const [draft, setDraft] = useState<ComposerSettings>({
+    model: boot.settings.defaultModel,
+    effort: boot.settings.defaultEffort,
+    permissionMode: boot.settings.defaultPermissionMode,
+  });
   const [pane, setPane] = useState<PaneTab | null>((stored(`pane${props.slot}`) as PaneTab) || null);
   const [openFile, setOpenFile] = useState<OpenFile | undefined>();
   const [refresh, setRefresh] = useState(0);
@@ -148,12 +159,20 @@ export function SessionView(props: {
     setPane("file");
   }, []);
 
-  const send = (text: string) => {
-    setLiveLog((log) => [...log, { type: "user", uuid: `local-${Date.now()}`, message: { role: "user", content: text } }]);
-    if (current) return socket.send({ t: "send", key: current.key, text });
+  const send = async (text: string, attachments: Attachment[] = []) => {
+    let content: string | unknown[] = text;
+    if (attachments.length) {
+      try {
+        content = [...(await Promise.all(attachments.map((a) => attachmentBlock(a)))), ...(text ? [{ type: "text", text }] : [])];
+      } catch (e) {
+        return props.onToast(`Couldn't attach: ${(e as Error).message}`);
+      }
+    }
+    setLiveLog((log) => [...log, { type: "user", uuid: `local-${Date.now()}`, message: { role: "user", content } }]);
+    if (current) return socket.send({ t: "send", key: current.key, content });
     const ref = crypto.randomUUID();
     pendingRef.current = ref;
-    socket.send({ t: "start", ref, cwd: view.cwd, resume: view.sessionId, worktree: !view.sessionId && props.useWorktree, text, ...draft });
+    socket.send({ t: "start", ref, cwd: view.cwd, resume: view.sessionId, worktree: !view.sessionId && props.useWorktree, text, content, ...draft });
   };
 
   const startSide = () => {
@@ -189,6 +208,7 @@ export function SessionView(props: {
     : draft;
 
   return (
+    <SessionContext.Provider value={{ sessionId: view.sessionId, cwd: view.cwd }}>
     <OpenFileContext.Provider value={showFile}>
       <section className={`session-view ${props.focused && props.split ? "focused" : ""}`} onMouseDown={props.onFocus}>
         <header className="topbar">
@@ -234,7 +254,8 @@ export function SessionView(props: {
                 models={catalog.models}
                 commands={catalog.commands}
                 onSettings={changeSettings}
-                onSend={send}
+                onSend={(t, a) => void send(t, a)}
+                onError={props.onToast}
                 onStop={() => current && socket.send({ t: "interrupt", key: current.key })}
               />
             </div>
@@ -255,12 +276,13 @@ export function SessionView(props: {
               previews={boot.previews}
               refresh={refresh}
               onOpenFile={(f) => (setOpenFile(f), setPane("file"))}
-              onAsk={send}
+              onAsk={(t) => void send(t)}
               onToast={props.onToast}
             />
           )}
         </div>
       </section>
     </OpenFileContext.Provider>
+    </SessionContext.Provider>
   );
 }

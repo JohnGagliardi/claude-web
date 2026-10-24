@@ -88,6 +88,7 @@ export class LiveSession {
   running = false;
   model?: string;
   error?: string;
+  lastActive = Date.now();
   permissionMode: PermissionMode;
   effort?: EffortLevel;
   // Messages seen since this process started, replayed to late subscribers.
@@ -153,6 +154,7 @@ export class LiveSession {
   private async pump() {
     try {
       for await (const msg of this.q) {
+        this.lastActive = Date.now();
         if (msg.type === "system" && msg.subtype === "init") {
           this.sessionId = msg.session_id;
           this.model = msg.model;
@@ -176,12 +178,14 @@ export class LiveSession {
     }
   }
 
-  send(text: string) {
+  // Plain text, or content blocks when the user attached images or documents.
+  send(content: SDKUserMessage["message"]["content"]) {
     this.running = true;
     this.error = undefined;
+    this.lastActive = Date.now();
     this.input.push({
       type: "user",
-      message: { role: "user", content: text },
+      message: { role: "user", content },
       parent_tool_use_id: null,
     });
     this.changed();
@@ -208,6 +212,7 @@ export class LiveSession {
   }
 
   answerPermission(id: string, reply: PermissionReply) {
+    this.lastActive = Date.now();
     const p = this.pending.get(id);
     if (!p) return;
     if (reply.decision === "deny") {

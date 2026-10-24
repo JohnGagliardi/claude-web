@@ -35,9 +35,14 @@ Mirror of the Claude desktop app's Code tab, minus account management.
 - [x] Split view: two sessions side by side (⧉ or Ctrl+click), each with its own side pane
 - [x] Desktop notifications when a session finishes or needs approval while off screen; unread count in the tab title
 
+## Polish pass (done)
+
+- [x] Attachments: paste, drop or pick; images inline, PDFs as documents, other files uploaded to `~/.claude-web/uploads` and passed by path
+- [x] Agent tool cards show the subagent's prompt, nested transcript (live, or loaded from its transcript file) and report
+- [x] Idle live sessions shut down after a configurable time; the next message resumes them
+- [x] Settings page: default model, effort, permission mode, worktree default, idle timeout, notifications, sign-in check
+
 ## Later
 
-- [ ] Image paste and file attachments in the composer
-- [ ] Subagent transcripts nested in Agent tool cards
-- [ ] Idle shutdown of live sessions; usage and cost view
-- [ ] Settings page (default model, effort, mode, notifications)
+- [ ] Syntax highlighting in the file viewer and diffs
+- [ ] Usage and cost view

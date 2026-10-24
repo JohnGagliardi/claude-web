@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, socket, type Bootstrap, type LiveSummary } from "./api";
 import { Sidebar, type SidebarItem } from "./components/Sidebar";
 import { Schedules } from "./components/Schedules";
+import { Settings } from "./components/Settings";
 import { SessionView, clearCatalogs, findLive, type View } from "./SessionView";
 import { stored, store } from "./storage";
 
@@ -65,13 +66,10 @@ export function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [panes, setPanes] = useState<View[]>([]);
   const [focus, setFocus] = useState(0);
-  const [showSchedules, setShowSchedules] = useState(false);
+  const [panel, setPanel] = useState<"schedules" | "settings" | null>(null);
   const [newCwd, setNewCwd] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [connected, setConnected] = useState(true);
-  const [useWorktree, setUseWorktree] = useState(stored("useWorktree") === "1");
-
-  useEffect(() => store("useWorktree", useWorktree ? "1" : ""), [useWorktree]);
 
   const refreshSessions = useCallback(async () => {
     const s = await api<Pick<Bootstrap, "sessions" | "projects" | "groups">>("/sessions");
@@ -111,6 +109,9 @@ export function App() {
         case "preview:list":
           setBoot((b) => (b ? { ...b, previews: m.previews } : b));
           break;
+        case "settings":
+          setBoot((b) => (b ? { ...b, settings: m.settings } : b));
+          break;
         case "schedules":
           setBoot((b) => (b ? { ...b, schedules: m.schedules } : b));
           break;
@@ -131,7 +132,7 @@ export function App() {
   // Opening a session reuses a pane that already shows it; otherwise it replaces
   // the focused pane, or fills the second pane when split is asked for.
   const open = useCallback((target: Omit<View, "id">, split = false) => {
-    setShowSchedules(false);
+    setPanel(null);
     setPanes((ps) => {
       const at = ps.findIndex(
         (v) => (target.sessionId && v.sessionId === target.sessionId) || (target.liveKey && v.liveKey === target.liveKey),
@@ -200,6 +201,9 @@ export function App() {
   const updatePane = useCallback((v: View) => setPanes((ps) => ps.map((p) => (p.id === v.id ? v : p))), []);
   const openSide = useCallback((v: Omit<View, "id">) => open(v, true), [open]);
 
+  const useWorktree = !!boot?.settings.newSessionWorktree;
+  const setUseWorktree = (v: boolean) => void api("/settings", { json: { newSessionWorktree: v } });
+
   if (!boot) return <div className="boot">{connected ? "Loading…" : "Can't reach the claude-web server."}</div>;
   const projects = boot.projects.length ? boot.projects : [boot.home];
 
@@ -216,7 +220,7 @@ export function App() {
         onUseWorktree={setUseWorktree}
         onAddProject={addProject}
         onNew={() => {
-          setShowSchedules(false);
+          setPanel(null);
           setPanes((ps) => {
             const v = { id: newId(), cwd: newCwd || boot.home };
             return ps.length ? ps.map((p, i) => (i === Math.min(focus, ps.length - 1) ? v : p)) : [v];
@@ -231,11 +235,14 @@ export function App() {
         }}
         footer={
           <>
-            <button className={`link ${showSchedules ? "on" : ""}`} onClick={() => setShowSchedules(!showSchedules)}>
+            <button className={`link ${panel === "schedules" ? "on" : ""}`} onClick={() => setPanel(panel === "schedules" ? null : "schedules")}>
               ⏱ Scheduled{boot.schedules.length ? ` (${boot.schedules.length})` : ""}
             </button>
             <button className="link" onClick={() => void notifications.toggle()} title="Desktop notifications when a session finishes or needs approval">
               {notifications.enabled ? "🔔 On" : "🔕 Off"}
+            </button>
+            <button className={`link ${panel === "settings" ? "on" : ""}`} onClick={() => setPanel(panel === "settings" ? null : "settings")}>
+              ⚙ Settings
             </button>
             <button className="link" onClick={reauth} title={boot.reauth.configured ? "Run this device's reauth command" : "Not set up on this device"}>
               ⟳ {boot.reauth.label}
@@ -244,8 +251,10 @@ export function App() {
           </>
         }
       />
-      <main className={`main ${panes.length > 1 && !showSchedules ? "split" : ""}`}>
-        {showSchedules ? (
+      <main className={`main ${panes.length > 1 && !panel ? "split" : ""}`}>
+        {panel === "settings" ? (
+          <Settings boot={boot} notifications={{ enabled: notifications.enabled, toggle: () => void notifications.toggle() }} onToast={setToast} />
+        ) : panel === "schedules" ? (
           <Schedules
             schedules={boot.schedules}
             projects={projects}

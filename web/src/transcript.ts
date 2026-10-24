@@ -3,11 +3,11 @@ import type { RawMsg } from "./api";
 export type ToolResult = { text: string; isError: boolean };
 
 export type Item =
-  | { kind: "user"; id: string; text: string; images: number }
+  | { kind: "user"; id: string; text: string; images: string[]; documents: number }
   | { kind: "command"; id: string; text: string }
   | { kind: "text"; id: string; text: string }
   | { kind: "thinking"; id: string; text: string }
-  | { kind: "tool"; id: string; name: string; input: any; result?: ToolResult }
+  | { kind: "tool"; id: string; name: string; input: any; result?: ToolResult; children: RawMsg[]; agentId?: string }
   | { kind: "result"; id: string; ok: boolean; text: string }
   | { kind: "system"; id: string; text: string };
 
@@ -29,14 +29,24 @@ function userText(text: string): { kind: "user" | "command" | "skip"; text: stri
   const out = tag(text, "local-command-stdout");
   if (out !== undefined) return out ? { kind: "command", text: out } : { kind: "skip", text: "" };
   if (/^\s*<(system-reminder|local-command-caveat)>/.test(text)) return { kind: "skip", text: "" };
+  // Background agents and shells report back through these.
+  if (/^\s*<task-notification>/.test(text)) {
+    const summary = tag(text, "summary") ?? tag(text, "status") ?? "update";
+    return { kind: "command", text: `Background task: ${summary}` };
+  }
   return { kind: "user", text };
 }
+
+export const isAgentTool = (name: string) => name === "Agent" || name === "Task";
 
 export function buildItems(msgs: RawMsg[]): Item[] {
   const items: Item[] = [];
   const tools = new Map<string, Extract<Item, { kind: "tool" }>>();
+  // Live subagent traffic is tagged with the Agent call that spawned it.
+  const nested = new Map<string, RawMsg[]>();
+  for (const m of msgs) if (m.parent_tool_use_id) nested.set(m.parent_tool_use_id, [...(nested.get(m.parent_tool_use_id) ?? []), m]);
   msgs.forEach((m, i) => {
-    if (m.parent_tool_use_id) return; // subagent traffic stays inside its Agent tool card
+    if (m.parent_tool_use_id) return;
     const id = m.uuid ?? `m${i}`;
     if (m.type === "user") {
       if (m.isMeta) return;
@@ -45,7 +55,10 @@ export function buildItems(msgs: RawMsg[]): Item[] {
         for (const b of content) {
           if (b?.type !== "tool_result") continue;
           const t = tools.get(b.tool_use_id);
-          if (t) t.result = { text: blockText(b.content), isError: !!b.is_error };
+          if (t) {
+            t.result = { text: blockText(b.content), isError: !!b.is_error };
+            t.agentId = t.result.text.match(/agentId: ([a-z0-9]+)/)?.[1];
+          }
         }
       }
       const text = Array.isArray(content)
@@ -53,11 +66,15 @@ export function buildItems(msgs: RawMsg[]): Item[] {
         : typeof content === "string"
           ? content
           : "";
-      const images = Array.isArray(content) ? content.filter((b: any) => b?.type === "image").length : 0;
-      if (!text && !images) return;
+      const blocks: any[] = Array.isArray(content) ? content : [];
+      const images = blocks
+        .filter((b) => b?.type === "image" && b.source?.type === "base64")
+        .map((b) => `data:${b.source.media_type};base64,${b.source.data}`);
+      const documents = blocks.filter((b) => b?.type === "document").length;
+      if (!text && !images.length && !documents) return;
       const u = userText(text);
       if (u.kind === "skip") return;
-      items.push(u.kind === "command" ? { kind: "command", id, text: u.text } : { kind: "user", id, text: u.text, images });
+      items.push(u.kind === "command" ? { kind: "command", id, text: u.text } : { kind: "user", id, text: u.text, images, documents });
     } else if (m.type === "assistant") {
       const content = m.message?.content;
       if (!Array.isArray(content)) return;
@@ -66,7 +83,7 @@ export function buildItems(msgs: RawMsg[]): Item[] {
         if (b.type === "text" && b.text?.trim()) items.push({ kind: "text", id: bid, text: b.text });
         else if (b.type === "thinking" && b.thinking?.trim()) items.push({ kind: "thinking", id: bid, text: b.thinking });
         else if (b.type === "tool_use") {
-          const t = { kind: "tool" as const, id: b.id ?? bid, name: b.name, input: b.input };
+          const t = { kind: "tool" as const, id: b.id ?? bid, name: b.name, input: b.input, children: nested.get(b.id) ?? [] };
           tools.set(t.id, t);
           items.push(t);
         }
