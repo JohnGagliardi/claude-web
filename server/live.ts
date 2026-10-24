@@ -89,6 +89,8 @@ export class LiveSession {
   model?: string;
   error?: string;
   lastActive = Date.now();
+  // Non-ambient background shells and agents; idle shutdown waits for them.
+  backgroundTasks = 0;
   permissionMode: PermissionMode;
   effort?: EffortLevel;
   // Messages seen since this process started, replayed to late subscribers.
@@ -165,6 +167,9 @@ export class LiveSession {
         if (msg.type === "result") {
           this.running = false;
           this.changed();
+        }
+        if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
+          this.backgroundTasks = msg.tasks.filter((t) => !t.ambient).length;
         }
         if (msg.type !== "stream_event") this.log.push(msg);
         this.emit({ t: "sdk", key: this.key, msg });
@@ -255,6 +260,27 @@ export class LiveSession {
 
   supportedCommands() {
     return this.q.supportedCommands();
+  }
+
+  // Session details for the Info pane.
+  contextUsage() {
+    return this.q.getContextUsage({ detail: "summary" });
+  }
+
+  mcpStatus() {
+    return this.q.mcpServerStatus();
+  }
+
+  toggleMcp(name: string, enabled: boolean) {
+    return this.q.toggleMcpServer(name, enabled);
+  }
+
+  reconnectMcp(name: string) {
+    return this.q.reconnectMcpServer(name);
+  }
+
+  stopTask(taskId: string) {
+    return this.q.stopTask(taskId);
   }
 
   close() {

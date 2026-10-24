@@ -138,6 +138,15 @@ function ToolCard({ item }: { item: ToolItem }) {
         <span className="tool-sum">{toolSummary(item.name, item.input)}</span>
         <span className="chev">{open ? "▾" : "▸"}</span>
       </button>
+      {!!item.result?.images.length && (
+        <div className="tool-images">
+          {item.result.images.map((src, i) => (
+            <a key={i} href={src} target="_blank" rel="noreferrer">
+              <img src={src} alt="" />
+            </a>
+          ))}
+        </div>
+      )}
       {open && (
         <div className="tool-body">
           <ToolBody name={item.name} input={item.input} />
@@ -277,7 +286,8 @@ function groupTools(items: Item[]): Block[] {
   };
   for (const it of items) {
     if (it.kind === "tool" && it.hidden) continue;
-    const groupable = (it.kind === "tool" && !isAgentTool(it.name)) || it.kind === "thinking";
+    // Tools that returned images stay on their own line so the images show.
+    const groupable = (it.kind === "tool" && !isAgentTool(it.name) && !it.result?.images.length) || it.kind === "thinking";
     if (groupable) run.push(it);
     else {
       flush();

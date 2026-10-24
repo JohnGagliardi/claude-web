@@ -5,6 +5,7 @@ import { Transcript } from "./components/Transcript";
 import { Composer, type Attachment, type ComposerSettings } from "./components/Composer";
 import { PermissionCard, type Reply } from "./components/Permission";
 import { SidePane, parseFileRef, type OpenFile, type PaneTab } from "./components/SidePane";
+import { InfoPane } from "./components/InfoPane";
 import { OpenFileContext, ReplyContext, SessionContext } from "./fileLinks";
 import { stored, store } from "./storage";
 
@@ -31,6 +32,7 @@ async function attachmentBlock(a: Attachment) {
 }
 
 const PANE_BUTTONS: [PaneTab, string][] = [
+  ["info", "Info"],
   ["diff", "Diff"],
   ["git", "Git"],
   ["terminal", "Terminal"],
@@ -195,10 +197,11 @@ export function SessionView(props: {
 
   const reply = (id: string, r: Reply) => current && socket.send({ t: "permission", key: current.key, id, reply: r });
 
-  const items = useMemo(() => {
+  const messages = useMemo(() => {
     const seen = new Set(prior.map((m) => m.uuid).filter(Boolean));
-    return buildItems([...prior, ...liveLog.filter((m) => !m.uuid || !seen.has(m.uuid))]);
+    return [...prior, ...liveLog.filter((m) => !m.uuid || !seen.has(m.uuid))];
   }, [prior, liveLog]);
+  const items = useMemo(() => buildItems(messages), [messages]);
   const todos = latestTodos(items);
   const info = boot.sessions.find((s) => s.sessionId === view.sessionId);
   const parent = info?.parent ? boot.sessions.find((s) => s.sessionId === info.parent) : undefined;
@@ -280,6 +283,18 @@ export function SessionView(props: {
               onOpenFile={(f) => (setOpenFile(f), setPane("file"))}
               onAsk={(t) => void send(t)}
               onToast={props.onToast}
+              info={
+                <InfoPane
+                  cwd={view.cwd}
+                  branch={info?.gitBranch}
+                  live={current}
+                  log={messages}
+                  items={items}
+                  refresh={refresh}
+                  onOpenFile={showFile}
+                  onToast={props.onToast}
+                />
+              }
             />
           )}
         </div>

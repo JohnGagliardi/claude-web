@@ -1,6 +1,11 @@
 import type { RawMsg } from "./api";
 
-export type ToolResult = { text: string; isError: boolean };
+export type ToolResult = { text: string; isError: boolean; images: string[] };
+
+const imagesOf = (content: any): string[] =>
+  Array.isArray(content)
+    ? content.filter((b) => b?.type === "image" && b.source?.type === "base64").map((b) => `data:${b.source.media_type};base64,${b.source.data}`)
+    : [];
 
 export type Item =
   | { kind: "user"; id: string; text: string; images: string[]; documents: number }
@@ -99,7 +104,7 @@ export function buildItems(msgs: RawMsg[]): Item[] {
           if (b?.type !== "tool_result") continue;
           const t = tools.get(b.tool_use_id);
           if (t) {
-            t.result = { text: blockText(b.content), isError: !!b.is_error };
+            t.result = { text: blockText(b.content).replace(/\n?\[image\]/g, ""), isError: !!b.is_error, images: imagesOf(b.content) };
             t.agentId = t.result.text.match(/agentId: ([a-z0-9]+)/)?.[1];
           }
         }
@@ -110,9 +115,7 @@ export function buildItems(msgs: RawMsg[]): Item[] {
           ? content
           : "";
       const blocks: any[] = Array.isArray(content) ? content : [];
-      const images = blocks
-        .filter((b) => b?.type === "image" && b.source?.type === "base64")
-        .map((b) => `data:${b.source.media_type};base64,${b.source.data}`);
+      const images = imagesOf(blocks);
       const documents = blocks.filter((b) => b?.type === "document").length;
       if (!text && !images.length && !documents) return;
       const u = userText(text);
@@ -225,6 +228,9 @@ export function groupSummary(tools: { name: string }[]): string {
 
 export function toolSummary(name: string, input: any): string {
   if (!input || typeof input !== "object") return "";
+  // Batched browser steps: "navigate → computer → screenshot".
+  if (Array.isArray(input.actions))
+    return input.actions.map((a: any) => a?.input?.action_summary ?? a?.input?.action ?? a?.name).filter(Boolean).join(" → ");
   const v =
     input.description ??
     input.command ??

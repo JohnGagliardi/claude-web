@@ -375,3 +375,25 @@ pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: var
 .settings .row { display: flex; gap: 8px; align-items: center; }
 .settings input[type="number"] { width: 80px; color: var(--text); }
 .auth-out { background: var(--code-bg); padding: 8px; border-radius: 8px; }
+
+/* Tool screenshots, session info pane */
+.tool-images { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px 14px; }
+.tool-images img { max-width: min(100%, 420px); max-height: 300px; border-radius: 10px; border: 1px solid var(--border); display: block; }
+.info-pane { padding: 6px 0; }
+.info-section { border-bottom: 1px solid var(--border); }
+.info-head { display: flex; align-items: center; gap: 8px; width: 100%; border: none; border-radius: 0; padding: 10px 14px; font-weight: 500; text-align: left; }
+.info-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+.info-body .kv > :first-child { width: 88px; }
+.kv-val { min-width: 0; overflow-wrap: anywhere; }
+.ctx-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--hover-strong); }
+.ctx-bar span { display: block; height: 100%; }
+.ctx-cats { display: flex; flex-direction: column; gap: 2px; }
+.ctx-cat { display: flex; align-items: center; gap: 8px; }
+.swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.connector, .task { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.conn-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--border-strong); }
+.conn-dot.connected { background: var(--ok); }
+.conn-dot.failed, .conn-dot.needs-auth { background: var(--err); }
+.conn-dot.pending { background: var(--accent); animation: pulse 1.2s infinite; }
+.output { display: block; text-align: left; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -196,7 +196,7 @@ setInterval(() => {
   const minutes = getSettings().idleMinutes;
   if (!minutes) return;
   for (const s of live.values()) {
-    if (!s.running && !s.summary().pending.length && Date.now() - s.lastActive > minutes * 60_000) s.close();
+    if (!s.running && !s.backgroundTasks && !s.summary().pending.length && Date.now() - s.lastActive > minutes * 60_000) s.close();
   }
 }, 60_000);
 
@@ -313,6 +313,39 @@ api.get(
 );
 
 api.post("/reauth", wrap(async (_req, res) => res.json(await runReauth())));
+
+// Info pane: context usage, connectors and background tasks of a live session.
+function liveFor(req: express.Request) {
+  const s = live.get(String(req.params.key));
+  if (!s) throw new Error("That session isn't running.");
+  return s;
+}
+const settle = <T,>(p: Promise<T>) => p.then((v) => v, (e) => ({ error: e instanceof Error ? e.message : String(e) }));
+api.get(
+  "/live/:key/info",
+  wrap(async (req, res) => {
+    const s = liveFor(req);
+    const [context, mcp] = await Promise.all([settle(s.contextUsage()), settle(s.mcpStatus())]);
+    res.json({ context, mcp });
+  }),
+);
+api.post(
+  "/live/:key/mcp",
+  wrap(async (req, res) => {
+    const s = liveFor(req);
+    const name = String(req.body?.name ?? "");
+    if (req.body?.reconnect) await s.reconnectMcp(name);
+    else await s.toggleMcp(name, !!req.body?.enabled);
+    res.json(await s.mcpStatus());
+  }),
+);
+api.post(
+  "/live/:key/tasks/:taskId/stop",
+  wrap(async (req, res) => {
+    await liveFor(req).stopTask(String(req.params.taskId));
+    res.json({ ok: true });
+  }),
+);
 
 // Git endpoints act on a session's folder, passed as ?cwd= or { cwd }.
 function folder(req: express.Request): string {
