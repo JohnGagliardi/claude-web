@@ -174,7 +174,11 @@ export class LiveSession {
         if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
           this.backgroundTasks = msg.tasks.filter((t) => !t.ambient).length;
         }
-        if (msg.type !== "stream_event") this.log.push(msg);
+        if (msg.type !== "stream_event") {
+          // Arrival time lets the UI show how long background tasks have run.
+          (msg as { received_at?: number }).received_at = Date.now();
+          this.log.push(msg);
+        }
         this.emit({ t: "sdk", key: this.key, msg });
       }
     } catch (e) {
@@ -267,7 +271,7 @@ export class LiveSession {
 
   // Session details for the Info pane.
   contextUsage() {
-    return this.q.getContextUsage({ detail: "summary" });
+    return this.q.getContextUsage({ detail: "full" });
   }
 
   mcpStatus() {

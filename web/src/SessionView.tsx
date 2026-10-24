@@ -61,6 +61,7 @@ export function SessionView(props: {
   compact?: boolean;
   railHidden?: boolean;
   onToggleRail?: () => void;
+  onOpenSettings?: () => void;
 }) {
   const { view, boot, onChange } = props;
   const [prior, setPrior] = useState<RawMsg[]>([]);
@@ -374,7 +375,8 @@ export function SessionView(props: {
                 items={items}
                 refresh={refresh}
                 onOpenFile={showFile}
-                onOpenPane={() => setPane("changes")}
+                onOpenPane={(k) => (k === "files" && setOpenFile(undefined), setPane(k))}
+                onOpenSettings={props.onOpenSettings}
                 onToast={props.onToast}
               />
             </aside>

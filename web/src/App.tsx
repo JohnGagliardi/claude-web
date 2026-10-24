@@ -287,6 +287,7 @@ export function App() {
               onOpenSide={openSide}
               onToast={setToast}
               railHidden={railHidden}
+              onOpenSettings={() => setPanel("settings")}
               onToggleRail={i === 0 ? toggleRail : undefined}
             />
           ))

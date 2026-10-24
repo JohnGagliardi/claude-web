@@ -91,3 +91,44 @@ export const RailIcon = () => (
     <path d="M9 4v16" />
   </Svg>
 );
+
+export const LaptopIcon = () => (
+  <Svg>
+    <rect x="4.5" y="5" width="15" height="10.5" rx="1.5" />
+    <path d="M2.5 19h19" />
+  </Svg>
+);
+
+export const GearIcon = () => (
+  <Svg>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2" />
+    <circle cx="12" cy="12" r="7" />
+  </Svg>
+);
+
+export const CodeIcon = () => (
+  <Svg>
+    <path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14" />
+  </Svg>
+);
+
+export const StopIcon = () => (
+  <Svg>
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </Svg>
+);
+
+export const UndoIcon = () => (
+  <Svg>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+  </Svg>
+);
+
+export const AgentIcon = () => (
+  <Svg>
+    <rect x="5" y="8" width="14" height="11" rx="3" />
+    <path d="M12 4.5V8M9.5 13h.01M14.5 13h.01" />
+  </Svg>
+);
