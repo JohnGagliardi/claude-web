@@ -52,6 +52,7 @@ export function InfoPane(props: {
   items: Item[];
   refresh: number;
   onOpenFile: (path: string) => void;
+  onOpenPane: (pane: "diff" | "git") => void;
   onToast: (t: string) => void;
 }) {
   const { live, log } = props;
@@ -126,7 +127,9 @@ export function InfoPane(props: {
         </Row>
         {props.branch && (
           <Row k="Branch">
-            <span className="mono small">{props.branch}</span>
+            <button className="link mono small" onClick={() => props.onOpenPane("git")} title="Open Git">
+              {props.branch}
+            </button>
           </Row>
         )}
         <Row k="Model">{live?.model ?? init?.model ?? "Default"}</Row>
@@ -203,7 +206,7 @@ export function InfoPane(props: {
         )}
       </Section>
 
-      <Section title="Outputs" count={outputs.length}>
+      <Section title="Outputs" count={outputs.length} open={outputs.length > 0}>
         {outputs.length === 0 ? (
           <div className="muted small">Files Claude writes or edits show here.</div>
         ) : (

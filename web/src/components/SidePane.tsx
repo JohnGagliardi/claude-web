@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, q, type FileDiff, type PreviewInfo, type PrStatus, type RepoInfo, type TerminalInfo } from "../api";
 import { TerminalPane } from "./TerminalPane";
 import { PreviewPane } from "./PreviewPane";
 
-export type PaneTab = "info" | "diff" | "file" | "git" | "terminal" | "preview";
+export type PaneTab = "diff" | "file" | "git" | "terminal" | "preview";
 export type OpenFile = { path: string; line?: number };
 
 // "src/a.ts:42" or "src/a.ts#L42" → path + line.
@@ -274,7 +274,7 @@ function GitView(props: {
   );
 }
 
-const TAB_LABELS: Record<PaneTab, string> = { info: "Info", diff: "Diff", file: "File", git: "Git", terminal: "Terminal", preview: "Preview" };
+const TAB_LABELS: Record<PaneTab, string> = { diff: "Diff", file: "File", git: "Git", terminal: "Terminal", preview: "Preview" };
 
 export function SidePane(props: {
   tab: PaneTab;
@@ -293,7 +293,6 @@ export function SidePane(props: {
   onOpenFile: (f: OpenFile) => void;
   onAsk: (text: string) => void;
   onToast: (text: string) => void;
-  info: ReactNode;
 }) {
   return (
     <aside className="side-pane">
@@ -307,7 +306,6 @@ export function SidePane(props: {
         <button className="link" onClick={props.onClose} title="Close pane">✕</button>
       </div>
       <div className="pane-body">
-        {props.tab === "info" && props.info}
         {props.tab === "diff" && <DiffView cwd={props.cwd} refresh={props.refresh} onOpen={props.onOpenFile} />}
         {props.tab === "file" && <FileView cwd={props.cwd} file={props.file} />}
         {props.tab === "git" && (

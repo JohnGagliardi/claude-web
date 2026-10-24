@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { api, socket, type Bootstrap, type Catalog, type LiveSummary, type RawMsg } from "./api";
 import { buildItems, latestTodos } from "./transcript";
 import { Transcript } from "./components/Transcript";
@@ -6,6 +6,7 @@ import { Composer, type Attachment, type ComposerSettings } from "./components/C
 import { PermissionCard, type Reply } from "./components/Permission";
 import { SidePane, parseFileRef, type OpenFile, type PaneTab } from "./components/SidePane";
 import { InfoPane } from "./components/InfoPane";
+import { BranchIcon, CloseIcon, DiffIcon, ForkIcon, GlobeIcon, PanelIcon, TerminalIcon } from "./components/Icons";
 import { OpenFileContext, ReplyContext, SessionContext } from "./fileLinks";
 import { stored, store } from "./storage";
 
@@ -31,12 +32,11 @@ async function attachmentBlock(a: Attachment) {
   return { type: "text", text: `Attached file: ${path}` };
 }
 
-const PANE_BUTTONS: [PaneTab, string][] = [
-  ["info", "Info"],
-  ["diff", "Diff"],
-  ["git", "Git"],
-  ["terminal", "Terminal"],
-  ["preview", "Preview"],
+const PANE_BUTTONS: [PaneTab, string, ComponentType][] = [
+  ["diff", "Diff", DiffIcon],
+  ["git", "Git", BranchIcon],
+  ["terminal", "Terminal", TerminalIcon],
+  ["preview", "Preview", GlobeIcon],
 ];
 
 // One session on screen: transcript, composer and its own side pane. Split view
@@ -64,7 +64,13 @@ export function SessionView(props: {
     effort: boot.settings.defaultEffort,
     permissionMode: boot.settings.defaultPermissionMode,
   });
-  const [pane, setPane] = useState<PaneTab | null>((stored(`pane${props.slot}`) as PaneTab) || null);
+  const [pane, setPane] = useState<PaneTab | null>(() => {
+    const p = stored(`pane${props.slot}`);
+    return p && p !== "info" ? (p as PaneTab) : null;
+  });
+  // The detail cards fill the right column whenever no other pane is open.
+  const [showInfo, setShowInfo] = useState(stored("infoCards") !== "0");
+  useEffect(() => store("infoCards", showInfo ? "1" : "0"), [showInfo]);
   const [openFile, setOpenFile] = useState<OpenFile | undefined>();
   const [refresh, setRefresh] = useState(0);
   const [terminal, setTerminal] = useState<string | undefined>();
@@ -223,15 +229,25 @@ export function SessionView(props: {
               {info?.gitBranch && ` · ${info.gitBranch}`}
             </div>
           </div>
-          {PANE_BUTTONS.map(([t, label]) => (
-            <button key={t} className={pane === t ? "on" : ""} onClick={() => setPane(pane === t ? null : t)}>
-              {label}
+          {PANE_BUTTONS.map(([t, label, Icon]) => (
+            <button key={t} className={`icon-btn ${pane === t ? "on" : ""}`} onClick={() => setPane(pane === t ? null : t)} title={label} aria-label={label}>
+              <Icon />
             </button>
           ))}
-          <button onClick={startSide} title="Start a side session for a separate task">⑃ Side</button>
+          <button className="icon-btn" onClick={startSide} title="Start a side session" aria-label="Start a side session">
+            <ForkIcon />
+          </button>
+          <button
+            className={`icon-btn ${showInfo && !pane ? "on" : ""}`}
+            onClick={() => (pane ? (setPane(null), setShowInfo(true)) : setShowInfo(!showInfo))}
+            title="Session details"
+            aria-label="Session details"
+          >
+            <PanelIcon />
+          </button>
           {props.onClose && (
-            <button className="link" onClick={props.onClose} title="Close this split">
-              ✕
+            <button className="icon-btn" onClick={props.onClose} title="Close this split" aria-label="Close this split">
+              <CloseIcon />
             </button>
           )}
         </header>
@@ -283,19 +299,22 @@ export function SessionView(props: {
               onOpenFile={(f) => (setOpenFile(f), setPane("file"))}
               onAsk={(t) => void send(t)}
               onToast={props.onToast}
-              info={
-                <InfoPane
-                  cwd={view.cwd}
-                  branch={info?.gitBranch}
-                  live={current}
-                  log={messages}
-                  items={items}
-                  refresh={refresh}
-                  onOpenFile={showFile}
-                  onToast={props.onToast}
-                />
-              }
             />
+          )}
+          {!pane && showInfo && (
+            <aside className="info-col">
+              <InfoPane
+                cwd={view.cwd}
+                branch={info?.gitBranch}
+                live={current}
+                log={messages}
+                items={items}
+                refresh={refresh}
+                onOpenFile={showFile}
+                onOpenPane={setPane}
+                onToast={props.onToast}
+              />
+            </aside>
           )}
         </div>
       </section>
