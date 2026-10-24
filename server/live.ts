@@ -74,6 +74,8 @@ export type StartOptions = {
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
   title?: string;
+  // With resume: branch off a copy of that conversation instead of continuing it.
+  fork?: boolean;
   // Per-session extras such as the app's MCP tools, built with the session key.
   extra?: (key: string) => Partial<Options>;
 };
@@ -100,7 +102,7 @@ export class LiveSession {
   private readonly pending = new Map<string, PendingPermission & { resolve: (r: PermissionResult) => void }>();
 
   constructor(readonly opts: StartOptions, private readonly emit: (e: LiveEvent) => void) {
-    this.sessionId = opts.resume;
+    this.sessionId = opts.fork ? undefined : opts.resume;
     this.permissionMode = opts.permissionMode ?? "default";
     this.effort = opts.effort;
     this.q = query({
@@ -109,6 +111,7 @@ export class LiveSession {
         ...opts.extra?.(this.key),
         cwd: opts.cwd,
         resume: opts.resume,
+        forkSession: opts.fork,
         title: opts.title,
         model: opts.model,
         effort: opts.effort,

@@ -19,6 +19,7 @@ export type SessionMeta = {
   // Side sessions point at the session that started them.
   parent?: string;
   scheduleId?: string;
+  sideChat?: boolean;
 };
 
 export type AppState = {

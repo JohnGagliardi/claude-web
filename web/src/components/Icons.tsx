@@ -66,3 +66,28 @@ export const CloseIcon = () => (
     <path d="M6 6l12 12M18 6 6 18" />
   </Svg>
 );
+
+export const FolderIcon = () => (
+  <Svg>
+    <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6l2 2.2h7.4A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" />
+  </Svg>
+);
+
+export const ChatIcon = () => (
+  <Svg>
+    <path d="M20 12.5a7.5 7.5 0 0 1-11 6.6L4 20l1-4.2A7.5 7.5 0 1 1 20 12.5z" />
+  </Svg>
+);
+
+export const TasksIcon = () => (
+  <Svg>
+    <path d="M3 12h3.5l2.5-6 4 12 2.5-6H21" />
+  </Svg>
+);
+
+export const RailIcon = () => (
+  <Svg>
+    <rect x="3" y="4" width="18" height="16" rx="3" />
+    <path d="M9 4v16" />
+  </Svg>
+);

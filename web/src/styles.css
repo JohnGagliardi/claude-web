@@ -405,3 +405,31 @@ pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: var
 .conn-dot.failed, .conn-dot.needs-auth { background: var(--err); }
 .conn-dot.pending { background: var(--accent); animation: pulse 1.2s infinite; }
 .output { display: block; text-align: left; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Split panes: chat | divider | pane */
+.pane-slot { flex: none; min-width: 300px; max-width: calc(100% - 360px); display: flex; }
+.pane-slot .side-pane { width: 100%; border-left: none; }
+.splitter { width: 5px; flex: none; cursor: col-resize; background: var(--border); background-clip: content-box; padding: 0 2px; margin: 0 -2px; z-index: 2; }
+.splitter:hover, body.dragging .splitter { background-color: var(--accent); }
+body.dragging { cursor: col-resize; user-select: none; }
+body.dragging iframe { pointer-events: none; }
+.pane-head { display: flex; align-items: center; gap: 8px; height: 44px; flex: none; padding: 0 8px 0 14px; border-bottom: 1px solid var(--border); }
+.pane-title { font-weight: 500; font-size: 13px; }
+.pane-head .icon-btn { width: 28px; height: 28px; padding: 0; border: none; display: grid; place-items: center; color: var(--muted); }
+.segmented { display: inline-flex; background: var(--hover); border-radius: 8px; padding: 2px; }
+.segmented button { border: none; padding: 2px 10px; font-size: 12px; border-radius: 6px; }
+.segmented button.on { background: var(--card); box-shadow: var(--shadow); }
+.file-tree { padding: 6px 0; font-size: 13px; }
+.tree-row { display: flex; gap: 4px; align-items: center; width: 100%; text-align: left; border: none; border-radius: 0; padding: 3px 12px; white-space: nowrap; }
+.tree-chev { width: 12px; flex: none; color: var(--muted); font-size: 10px; }
+.muted-2 { color: var(--text-2); }
+.pane-body:has(.session-view.compact), .pane-body:has(.task-list) { display: flex; flex-direction: column; }
+.session-view.compact { flex: 1; min-height: 0; }
+.session-view.compact .transcript-inner { padding: 14px 14px 18px; }
+.session-view.compact .dock { padding: 0 12px 12px; }
+.task-list { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+@media (max-width: 1000px) {
+  .pane-slot { position: fixed; right: 0; top: 0; bottom: 0; width: min(92vw, 560px) !important; max-width: none; z-index: 5; box-shadow: -8px 0 24px #0003; }
+  .pane-slot .side-pane { position: static; width: 100%; box-shadow: none; }
+  .splitter { display: none; }
+}

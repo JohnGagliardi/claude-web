@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, q, type FileDiff, type PreviewInfo, type PrStatus, type RepoInfo, type TerminalInfo } from "../api";
 import { TerminalPane } from "./TerminalPane";
 import { PreviewPane } from "./PreviewPane";
 
-export type PaneTab = "diff" | "file" | "git" | "terminal" | "preview";
+
 export type OpenFile = { path: string; line?: number };
 
 // "src/a.ts:42" or "src/a.ts#L42" → path + line.
@@ -274,47 +274,112 @@ function GitView(props: {
   );
 }
 
-const TAB_LABELS: Record<PaneTab, string> = { diff: "Diff", file: "File", git: "Git", terminal: "Terminal", preview: "Preview" };
+type Entry = { name: string; dir: boolean; path: string };
 
+// Lazily expanded tree of the session folder.
+function FileTree({ cwd, onOpen }: { cwd: string; onOpen: (f: OpenFile) => void }) {
+  const [kids, setKids] = useState<Record<string, Entry[] | "loading" | string>>({});
+  const [open, setOpen] = useState<Record<string, boolean>>({ "": true });
+  const load = (dir: string) => {
+    setKids((k) => ({ ...k, [dir]: "loading" }));
+    api<Entry[]>(`/files/list${q({ cwd, path: dir })}`).then(
+      (list) => setKids((k) => ({ ...k, [dir]: list })),
+      (e) => setKids((k) => ({ ...k, [dir]: String(e.message) })),
+    );
+  };
+  useEffect(() => {
+    setKids({});
+    setOpen({ "": true });
+    load("");
+  }, [cwd]);
+
+  const level = (dir: string, depth: number): ReactNode => {
+    const list = kids[dir];
+    if (list === undefined || list === "loading") return <div className="tree-row muted small" style={{ paddingLeft: 12 + depth * 14 }}>Loading…</div>;
+    if (typeof list === "string") return <div className="tree-row err small" style={{ paddingLeft: 12 + depth * 14 }}>{list}</div>;
+    return list.map((e) => (
+      <div key={e.path}>
+        <button
+          className="tree-row"
+          style={{ paddingLeft: 12 + depth * 14 }}
+          onClick={() => {
+            if (!e.dir) return onOpen({ path: e.path });
+            const next = !open[e.path];
+            setOpen({ ...open, [e.path]: next });
+            if (next && kids[e.path] === undefined) load(e.path);
+          }}
+        >
+          <span className="tree-chev">{e.dir ? (open[e.path] ? "▾" : "▸") : ""}</span>
+          <span className={e.dir ? "" : "muted-2"}>{e.name}</span>
+        </button>
+        {e.dir && open[e.path] && level(e.path, depth + 1)}
+      </div>
+    ));
+  };
+  return <div className="file-tree">{level("", 0)}</div>;
+}
+
+export type PaneKind = "terminal" | "changes" | "browser" | "files" | "sidechat" | "tasks";
+export const PANE_TITLES: Record<PaneKind, string> = {
+  terminal: "Terminal",
+  changes: "Changes",
+  browser: "Browser",
+  files: "Files",
+  sidechat: "Side chat",
+  tasks: "Background tasks",
+};
+
+// One pane beside the chat. Side chat and background tasks come in as children
+// because they need the session's own state.
 export function SidePane(props: {
-  tab: PaneTab;
-  onTab: (t: PaneTab) => void;
+  kind: PaneKind;
   onClose: () => void;
   cwd: string;
   sessionId?: string;
   liveKey?: string;
   autofix?: boolean;
   file?: OpenFile;
+  onFile: (f?: OpenFile) => void;
   refresh: number;
   terminals: TerminalInfo[];
   terminal?: string;
   onTerminal: (id?: string) => void;
   previews: PreviewInfo[];
-  onOpenFile: (f: OpenFile) => void;
   onAsk: (text: string) => void;
   onToast: (text: string) => void;
+  children?: ReactNode;
 }) {
+  const [changesView, setChangesView] = useState<"diff" | "git">("diff");
   return (
     <aside className="side-pane">
-      <div className="tabs">
-        {(Object.keys(TAB_LABELS) as PaneTab[]).map((t) => (
-          <button key={t} className={props.tab === t ? "on" : ""} onClick={() => props.onTab(t)}>
-            {TAB_LABELS[t]}
+      <div className="pane-head">
+        {props.kind === "files" && props.file ? (
+          <button className="link" onClick={() => props.onFile(undefined)} title="Back to the file list">
+            ← Files
           </button>
-        ))}
+        ) : (
+          <span className="pane-title">{PANE_TITLES[props.kind]}</span>
+        )}
+        {props.kind === "changes" && (
+          <span className="segmented">
+            <button className={changesView === "diff" ? "on" : ""} onClick={() => setChangesView("diff")}>Diff</button>
+            <button className={changesView === "git" ? "on" : ""} onClick={() => setChangesView("git")}>Git</button>
+          </span>
+        )}
         <span className="spacer" />
-        <button className="link" onClick={props.onClose} title="Close pane">✕</button>
+        <button className="icon-btn" onClick={props.onClose} title="Close" aria-label="Close">
+          ✕
+        </button>
       </div>
       <div className="pane-body">
-        {props.tab === "diff" && <DiffView cwd={props.cwd} refresh={props.refresh} onOpen={props.onOpenFile} />}
-        {props.tab === "file" && <FileView cwd={props.cwd} file={props.file} />}
-        {props.tab === "git" && (
+        {props.kind === "changes" && changesView === "diff" && <DiffView cwd={props.cwd} refresh={props.refresh} onOpen={props.onFile} />}
+        {props.kind === "changes" && changesView === "git" && (
           <GitView cwd={props.cwd} sessionId={props.sessionId} autofix={props.autofix} refresh={props.refresh} onAsk={props.onAsk} onToast={props.onToast} />
         )}
-        {props.tab === "terminal" && (
-          <TerminalPane cwd={props.cwd} terminals={props.terminals} selected={props.terminal} onSelect={props.onTerminal} />
-        )}
-        {props.tab === "preview" && <PreviewPane cwd={props.cwd} previews={props.previews} liveKey={props.liveKey} onToast={props.onToast} />}
+        {props.kind === "files" && (props.file ? <FileView cwd={props.cwd} file={props.file} /> : <FileTree cwd={props.cwd} onOpen={props.onFile} />)}
+        {props.kind === "terminal" && <TerminalPane cwd={props.cwd} terminals={props.terminals} selected={props.terminal} onSelect={props.onTerminal} />}
+        {props.kind === "browser" && <PreviewPane cwd={props.cwd} previews={props.previews} liveKey={props.liveKey} onToast={props.onToast} />}
+        {(props.kind === "sidechat" || props.kind === "tasks") && props.children}
       </div>
     </aside>
   );

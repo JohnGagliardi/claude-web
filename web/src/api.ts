@@ -17,6 +17,7 @@ export type SessionInfo = {
   autofix?: boolean;
   parent?: string;
   scheduleId?: string;
+  sideChat?: boolean;
 };
 
 export type PendingPermission = {

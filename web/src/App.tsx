@@ -70,6 +70,12 @@ export function App() {
   const [newCwd, setNewCwd] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [connected, setConnected] = useState(true);
+  const [railHidden, setRailHidden] = useState(stored("railHidden") === "1");
+  const toggleRail = () =>
+    setRailHidden((h) => {
+      store("railHidden", h ? "" : "1");
+      return !h;
+    });
 
   const refreshSessions = useCallback(async () => {
     const s = await api<Pick<Bootstrap, "sessions" | "projects" | "groups">>("/sessions");
@@ -209,8 +215,9 @@ export function App() {
 
   return (
     <div className="app">
+      {!railHidden && (
       <Sidebar
-        sessions={boot.sessions}
+        sessions={boot.sessions.filter((s) => !s.sideChat)}
         live={boot.live}
         projects={projects}
         selected={panes}
@@ -251,6 +258,7 @@ export function App() {
           </>
         }
       />
+      )}
       <main className={`main ${panes.length > 1 && !panel ? "split" : ""}`}>
         {panel === "settings" ? (
           <Settings boot={boot} notifications={{ enabled: notifications.enabled, toggle: () => void notifications.toggle() }} onToast={setToast} />
@@ -278,6 +286,8 @@ export function App() {
               onChange={updatePane}
               onOpenSide={openSide}
               onToast={setToast}
+              railHidden={railHidden}
+              onToggleRail={i === 0 ? toggleRail : undefined}
             />
           ))
         ) : (

@@ -43,6 +43,7 @@ function readAttachment(file: File): Promise<Attachment> {
 export function Composer(props: {
   running: boolean;
   disabled?: boolean;
+  placeholder?: string;
   settings: ComposerSettings;
   models: ModelInfo[];
   commands: SlashCommand[];
@@ -140,7 +141,7 @@ export function Composer(props: {
         ref={ta}
         rows={2}
         value={text}
-        placeholder={props.running ? "Queue a message for Claude…" : "Ask Claude to do something… ( / for commands, paste or drop files )"}
+        placeholder={props.placeholder ?? (props.running ? "Queue a message for Claude…" : "Ask Claude to do something… ( / for commands, paste or drop files )")}
         onChange={(e) => setText(e.target.value)}
         onPaste={(e) => {
           if (e.clipboardData.files.length) {

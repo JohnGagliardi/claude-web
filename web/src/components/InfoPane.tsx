@@ -220,6 +220,24 @@ export function InfoPane(props: {
       </Section>
 
       <Section title="Background tasks" count={running.length}>
+        <BackgroundTasks live={live} log={log} onToast={props.onToast} />
+      </Section>
+    </div>
+  );
+}
+
+// Running background shells and agents (with Stop), then recently finished ones.
+export function BackgroundTasks({ live, log, onToast }: { live?: LiveSummary; log: RawMsg[]; onToast: (t: string) => void }) {
+  const running: Task[] = useMemo(() => {
+    const last = [...log].reverse().find((m) => m.type === "system" && m.subtype === "background_tasks_changed");
+    return live ? ((last?.tasks ?? []) as Task[]).filter((t) => !t.ambient) : [];
+  }, [log, live]);
+  const finished: Finished[] = useMemo(
+    () => log.filter((m) => m.type === "system" && m.subtype === "task_notification").reverse().slice(0, 10) as unknown as Finished[],
+    [log],
+  );
+  return (
+    <div className="task-list">
         {running.length === 0 && finished.length === 0 && <div className="muted small">No background shells or agents.</div>}
         {running.map((t) => (
           <div key={t.task_id} className="task">
@@ -230,7 +248,7 @@ export function InfoPane(props: {
             </span>
             <button
               className="small"
-              onClick={() => live && void api(`/live/${live.key}/tasks/${t.task_id}/stop`, { json: {} }).catch((e) => props.onToast(e.message))}
+              onClick={() => live && void api(`/live/${live.key}/tasks/${t.task_id}/stop`, { json: {} }).catch((e) => onToast(e.message))}
             >
               Stop
             </button>
@@ -242,7 +260,6 @@ export function InfoPane(props: {
             <span className="conn-name muted">{t.summary || t.status}</span>
           </div>
         ))}
-      </Section>
     </div>
   );
 }

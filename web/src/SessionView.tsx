@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent } from "react";
 import { api, socket, type Bootstrap, type Catalog, type LiveSummary, type RawMsg } from "./api";
 import { buildItems, latestTodos } from "./transcript";
 import { Transcript } from "./components/Transcript";
 import { Composer, type Attachment, type ComposerSettings } from "./components/Composer";
 import { PermissionCard, type Reply } from "./components/Permission";
-import { SidePane, parseFileRef, type OpenFile, type PaneTab } from "./components/SidePane";
-import { InfoPane } from "./components/InfoPane";
-import { BranchIcon, CloseIcon, DiffIcon, ForkIcon, GlobeIcon, PanelIcon, TerminalIcon } from "./components/Icons";
+import { SidePane, parseFileRef, type OpenFile, type PaneKind } from "./components/SidePane";
+import { BackgroundTasks, InfoPane } from "./components/InfoPane";
+import { ChatIcon, CloseIcon, DiffIcon, FolderIcon, GlobeIcon, RailIcon, TasksIcon, TerminalIcon } from "./components/Icons";
 import { OpenFileContext, ReplyContext, SessionContext } from "./fileLinks";
 import { stored, store } from "./storage";
 
-export type View = { id: string; sessionId?: string; liveKey?: string; cwd: string };
+// forkOf: a side chat that branches off that session on its first message.
+export type View = { id: string; sessionId?: string; liveKey?: string; cwd: string; forkOf?: string };
 
 const emptyCatalog: Catalog = { models: [], commands: [] };
 const catalogs = new Map<string, Promise<Catalog>>();
@@ -32,12 +33,15 @@ async function attachmentBlock(a: Attachment) {
   return { type: "text", text: `Attached file: ${path}` };
 }
 
-const PANE_BUTTONS: [PaneTab, string, ComponentType][] = [
-  ["diff", "Diff", DiffIcon],
-  ["git", "Git", BranchIcon],
+const PANE_BUTTONS: [PaneKind, string, ComponentType][] = [
   ["terminal", "Terminal", TerminalIcon],
-  ["preview", "Preview", GlobeIcon],
+  ["changes", "Changes", DiffIcon],
+  ["browser", "Browser", GlobeIcon],
+  ["files", "Files", FolderIcon],
+  ["sidechat", "Side chat", ChatIcon],
+  ["tasks", "Background tasks", TasksIcon],
 ];
+const PANES = PANE_BUTTONS.map(([k]) => k);
 
 // One session on screen: transcript, composer and its own side pane. Split view
 // renders two of these side by side.
@@ -53,6 +57,10 @@ export function SessionView(props: {
   onChange: (v: View) => void;
   onOpenSide: (v: Omit<View, "id">) => void;
   onToast: (t: string) => void;
+  // A side chat renders as a bare transcript and composer inside its pane.
+  compact?: boolean;
+  railHidden?: boolean;
+  onToggleRail?: () => void;
 }) {
   const { view, boot, onChange } = props;
   const [prior, setPrior] = useState<RawMsg[]>([]);
@@ -64,13 +72,15 @@ export function SessionView(props: {
     effort: boot.settings.defaultEffort,
     permissionMode: boot.settings.defaultPermissionMode,
   });
-  const [pane, setPane] = useState<PaneTab | null>(() => {
-    const p = stored(`pane${props.slot}`);
-    return p && p !== "info" ? (p as PaneTab) : null;
+  // A pane splits the main view; with none open, the detail cards take the right column.
+  const [pane, setPane] = useState<PaneKind | null>(() => {
+    const p = stored(`pane${props.slot}`) as PaneKind;
+    return !props.compact && PANES.includes(p) ? p : null;
   });
-  // The detail cards fill the right column whenever no other pane is open.
-  const [showInfo, setShowInfo] = useState(stored("infoCards") !== "0");
-  useEffect(() => store("infoCards", showInfo ? "1" : "0"), [showInfo]);
+  useEffect(() => void (!props.compact && store(`pane${props.slot}`, pane ?? "")), [pane, props.slot]);
+  const [paneWidth, setPaneWidth] = useState(() => Number(stored("paneWidth")) || 520);
+  useEffect(() => store("paneWidth", String(paneWidth)), [paneWidth]);
+  const [sideChat, setSideChat] = useState<View | undefined>();
   const [openFile, setOpenFile] = useState<OpenFile | undefined>();
   const [refresh, setRefresh] = useState(0);
   const [terminal, setTerminal] = useState<string | undefined>();
@@ -164,7 +174,7 @@ export function SessionView(props: {
 
   const showFile = useCallback((ref: string) => {
     setOpenFile(parseFileRef(ref));
-    setPane("file");
+    setPane("files");
   }, []);
 
   const send = async (text: string, attachments: Attachment[] = []) => {
@@ -180,17 +190,18 @@ export function SessionView(props: {
     if (current) return socket.send({ t: "send", key: current.key, content });
     const ref = crypto.randomUUID();
     pendingRef.current = ref;
-    socket.send({ t: "start", ref, cwd: view.cwd, resume: view.sessionId, worktree: !view.sessionId && props.useWorktree, text, content, ...draft });
-  };
-
-  const startSide = () => {
-    const task = prompt("What should the side session do?");
-    if (!task?.trim()) return;
-    const ref = crypto.randomUUID();
-    sideRef.current = ref;
-    const title = task.trim().split(/\s+/).slice(0, 6).join(" ");
-    const worktree = props.useWorktree && confirm("Give the side session its own worktree?");
-    socket.send({ t: "side", ref, parentKey: current?.key, parentSessionId: view.sessionId, cwd: view.cwd, text: task.trim(), title, worktree });
+    const fork = !view.sessionId && !!view.forkOf;
+    socket.send({
+      t: "start",
+      ref,
+      cwd: view.cwd,
+      resume: view.sessionId ?? view.forkOf,
+      sideChat: fork,
+      worktree: !view.sessionId && !fork && props.useWorktree,
+      text,
+      content,
+      ...draft,
+    });
   };
 
   const changeSettings = (patch: Partial<ComposerSettings>) => {
@@ -202,6 +213,26 @@ export function SessionView(props: {
   };
 
   const reply = (id: string, r: Reply) => current && socket.send({ t: "permission", key: current.key, id, reply: r });
+
+  const openPane = (k: PaneKind) => {
+    if (k === "sidechat" && !sideChat) setSideChat({ id: crypto.randomUUID(), cwd: view.cwd, forkOf: view.sessionId });
+    setPane(pane === k ? null : k);
+  };
+
+  // Dragging the divider resizes the pane; the chat keeps at least 360px.
+  const startDrag = (e: ReactMouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const box = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+    const move = (ev: MouseEvent) => setPaneWidth(Math.round(Math.min(box.width - 360, Math.max(300, box.right - ev.clientX))));
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      document.body.classList.remove("dragging");
+    };
+    document.body.classList.add("dragging");
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
 
   const messages = useMemo(() => {
     const seen = new Set(prior.map((m) => m.uuid).filter(Boolean));
@@ -216,11 +247,58 @@ export function SessionView(props: {
     ? { model: draft.model, effort: current.effort ?? draft.effort, permissionMode: current.permissionMode }
     : draft;
 
+  const chat = (
+    <div className="chat">
+      <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
+        <Transcript items={items} partial={partial} running={running} />
+      </ReplyContext.Provider>
+      <div className="dock">
+        {current?.error && <div className="banner err">{current.error}</div>}
+        {todos && todos.some((t) => t.status !== "completed") && (
+          <div className="todos">
+            {todos.map((t, i) => (
+              <div key={i} className={`todo ${t.status}`}>
+                <span className="todo-mark">{t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○"}</span>
+                {t.status === "in_progress" ? (t.activeForm ?? t.content) : t.content}
+              </div>
+            ))}
+          </div>
+        )}
+        {current?.pending.map((p) => <PermissionCard key={p.id} p={p} onReply={(r) => reply(p.id, r)} />)}
+        <Composer
+          running={running}
+          settings={settings}
+          models={catalog.models}
+          commands={catalog.commands}
+          placeholder={props.compact ? "Ask a side question. The main session isn't affected." : undefined}
+          onSettings={changeSettings}
+          onSend={(t, a) => void send(t, a)}
+          onError={props.onToast}
+          onStop={() => current && socket.send({ t: "interrupt", key: current.key })}
+        />
+      </div>
+    </div>
+  );
+
+  if (props.compact)
+    return (
+      <SessionContext.Provider value={{ sessionId: view.sessionId, cwd: view.cwd }}>
+        <OpenFileContext.Provider value={showFile}>
+          <div className="session-view compact">{chat}</div>
+        </OpenFileContext.Provider>
+      </SessionContext.Provider>
+    );
+
   return (
     <SessionContext.Provider value={{ sessionId: view.sessionId, cwd: view.cwd }}>
     <OpenFileContext.Provider value={showFile}>
       <section className={`session-view ${props.focused && props.split ? "focused" : ""}`} onMouseDown={props.onFocus}>
         <header className="topbar">
+          {props.onToggleRail && (
+            <button className="icon-btn" onClick={props.onToggleRail} title={props.railHidden ? "Show session rail" : "Hide session rail"} aria-label="Toggle session rail">
+              <RailIcon />
+            </button>
+          )}
           <div className="topbar-title">
             <div className="title">{info?.customTitle || info?.summary || "New session"}</div>
             <div className="muted small mono">
@@ -229,22 +307,11 @@ export function SessionView(props: {
               {info?.gitBranch && ` · ${info.gitBranch}`}
             </div>
           </div>
-          {PANE_BUTTONS.map(([t, label, Icon]) => (
-            <button key={t} className={`icon-btn ${pane === t ? "on" : ""}`} onClick={() => setPane(pane === t ? null : t)} title={label} aria-label={label}>
+          {PANE_BUTTONS.map(([k, label, Icon]) => (
+            <button key={k} className={`icon-btn ${pane === k ? "on" : ""}`} onClick={() => openPane(k)} title={label} aria-label={label}>
               <Icon />
             </button>
           ))}
-          <button className="icon-btn" onClick={startSide} title="Start a side session" aria-label="Start a side session">
-            <ForkIcon />
-          </button>
-          <button
-            className={`icon-btn ${showInfo && !pane ? "on" : ""}`}
-            onClick={() => (pane ? (setPane(null), setShowInfo(true)) : setShowInfo(!showInfo))}
-            title="Session details"
-            aria-label="Session details"
-          >
-            <PanelIcon />
-          </button>
           {props.onClose && (
             <button className="icon-btn" onClick={props.onClose} title="Close this split" aria-label="Close this split">
               <CloseIcon />
@@ -252,56 +319,52 @@ export function SessionView(props: {
           )}
         </header>
         <div className="workspace">
-          <div className="chat">
-            <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
-              <Transcript items={items} partial={partial} running={running} />
-            </ReplyContext.Provider>
-            <div className="dock">
-              {current?.error && <div className="banner err">{current.error}</div>}
-              {todos && todos.some((t) => t.status !== "completed") && (
-                <div className="todos">
-                  {todos.map((t, i) => (
-                    <div key={i} className={`todo ${t.status}`}>
-                      <span className="todo-mark">{t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○"}</span>
-                      {t.status === "in_progress" ? (t.activeForm ?? t.content) : t.content}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {current?.pending.map((p) => <PermissionCard key={p.id} p={p} onReply={(r) => reply(p.id, r)} />)}
-              <Composer
-                running={running}
-                settings={settings}
-                models={catalog.models}
-                commands={catalog.commands}
-                onSettings={changeSettings}
-                onSend={(t, a) => void send(t, a)}
-                onError={props.onToast}
-                onStop={() => current && socket.send({ t: "interrupt", key: current.key })}
-              />
-            </div>
-          </div>
-          {pane && (
-            <SidePane
-              tab={pane}
-              onTab={setPane}
-              onClose={() => setPane(null)}
-              cwd={view.cwd}
-              sessionId={view.sessionId}
-              liveKey={current?.key}
-              autofix={info?.autofix}
-              file={openFile}
-              terminals={boot.terminals}
-              terminal={terminal}
-              onTerminal={setTerminal}
-              previews={boot.previews}
-              refresh={refresh}
-              onOpenFile={(f) => (setOpenFile(f), setPane("file"))}
-              onAsk={(t) => void send(t)}
-              onToast={props.onToast}
-            />
-          )}
-          {!pane && showInfo && (
+          {chat}
+          {pane ? (
+            <>
+              <div className="splitter" onMouseDown={startDrag} />
+              <div className="pane-slot" style={{ width: paneWidth }}>
+                <SidePane
+                  kind={pane}
+                  onClose={() => setPane(null)}
+                  cwd={view.cwd}
+                  sessionId={view.sessionId}
+                  liveKey={current?.key}
+                  autofix={info?.autofix}
+                  file={openFile}
+                  onFile={(f) => (setOpenFile(f), setPane("files"))}
+                  terminals={boot.terminals}
+                  terminal={terminal}
+                  onTerminal={setTerminal}
+                  previews={boot.previews}
+                  refresh={refresh}
+                  onAsk={(t) => void send(t)}
+                  onToast={props.onToast}
+                >
+                  {pane === "tasks" && <BackgroundTasks live={current} log={messages} onToast={props.onToast} />}
+                  {pane === "sidechat" &&
+                    (view.sessionId && sideChat ? (
+                      <SessionView
+                        key={sideChat.id}
+                        view={sideChat}
+                        slot={props.slot + 10}
+                        boot={boot}
+                        useWorktree={false}
+                        focused={false}
+                        split={false}
+                        compact
+                        onFocus={() => {}}
+                        onChange={setSideChat}
+                        onOpenSide={props.onOpenSide}
+                        onToast={props.onToast}
+                      />
+                    ) : (
+                      <div className="pane-empty">Send a message first. A side chat branches off this conversation.</div>
+                    ))}
+                </SidePane>
+              </div>
+            </>
+          ) : (
             <aside className="info-col">
               <InfoPane
                 cwd={view.cwd}
@@ -311,7 +374,7 @@ export function SessionView(props: {
                 items={items}
                 refresh={refresh}
                 onOpenFile={showFile}
-                onOpenPane={setPane}
+                onOpenPane={() => setPane("changes")}
                 onToast={props.onToast}
               />
             </aside>

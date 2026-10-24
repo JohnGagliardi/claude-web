@@ -77,7 +77,7 @@ const lastShot = new Map<string, { data: string; url: string }>();
 
 // Resuming a session that already has a live process reuses it.
 function startSession(opts: ConstructorParameters<typeof LiveSession>[0]): LiveSession {
-  const existing = opts.resume ? [...live.values()].find((x) => x.sessionId === opts.resume) : undefined;
+  const existing = opts.resume && !opts.fork ? [...live.values()].find((x) => x.sessionId === opts.resume) : undefined;
   const session =
     existing ??
     new LiveSession(
@@ -360,6 +360,21 @@ api.get(
   wrap(async (req, res) => res.json(await workingDiff(folder(req), req.query.against === "base" ? "base" : "HEAD"))),
 );
 api.get("/git/file", wrap(async (req, res) => res.json(readFileFor(folder(req), String(req.query.path ?? "")))));
+// One directory level for the Files pane, folders first; stays inside the session folder.
+api.get(
+  "/files/list",
+  wrap(async (req, res) => {
+    const root = path.resolve(folder(req));
+    const dir = path.resolve(root, String(req.query.path ?? ""));
+    if (dir !== root && !dir.startsWith(root + path.sep)) return res.status(400).json({ error: "Outside the session folder." });
+    const entries = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.name !== ".git")
+      .map((e) => ({ name: e.name, dir: e.isDirectory(), path: path.relative(root, path.join(dir, e.name)) }))
+      .sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name));
+    res.json(entries);
+  }),
+);
 api.post("/git/sync", wrap(async (req, res) => res.json(await syncWithBase(folder(req)))));
 api.post(
   "/git/commit",
@@ -472,8 +487,15 @@ wss.on("connection", (ws) => {
             const wt = await createWorktree(cwd, String(m.text ?? "session").split(/\s+/).slice(0, 5).join(" "));
             cwd = wt.path;
           }
-          const session = startSession({ cwd, resume: m.resume, model: m.model, effort: m.effort, permissionMode: m.permissionMode });
+          const fork = !!m.sideChat && !!m.resume;
+          const session = startSession({ cwd, resume: m.resume, fork, model: m.model, effort: m.effort, permissionMode: m.permissionMode });
           ws.send(JSON.stringify({ t: "started", ref: m.ref, session: session.summary() }));
+          // A side chat is a fork of the session it was opened from; it stays out of the sidebar.
+          if (fork)
+            void session.sessionIdReady().then((id) => {
+              if (id) updateSessionMeta(id, { parent: m.resume, sideChat: true, cwd });
+              broadcast({ t: "sessions-changed" });
+            });
           if (m.content || m.text) session.send(m.content ?? m.text);
           break;
         }
