@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { api, q, type FileDiff, type PrStatus, type RepoInfo } from "../api";
+import { api, q, type FileDiff, type PreviewInfo, type PrStatus, type RepoInfo, type TerminalInfo } from "../api";
+import { TerminalPane } from "./TerminalPane";
+import { PreviewPane } from "./PreviewPane";
 
-export type PaneTab = "diff" | "file" | "git";
+export type PaneTab = "diff" | "file" | "git" | "terminal" | "preview";
 export type OpenFile = { path: string; line?: number };
 
 // "src/a.ts:42" or "src/a.ts#L42" → path + line.
@@ -272,15 +274,22 @@ function GitView(props: {
   );
 }
 
+const TAB_LABELS: Record<PaneTab, string> = { diff: "Diff", file: "File", git: "Git", terminal: "Terminal", preview: "Preview" };
+
 export function SidePane(props: {
   tab: PaneTab;
   onTab: (t: PaneTab) => void;
   onClose: () => void;
   cwd: string;
   sessionId?: string;
+  liveKey?: string;
   autofix?: boolean;
   file?: OpenFile;
   refresh: number;
+  terminals: TerminalInfo[];
+  terminal?: string;
+  onTerminal: (id?: string) => void;
+  previews: PreviewInfo[];
   onOpenFile: (f: OpenFile) => void;
   onAsk: (text: string) => void;
   onToast: (text: string) => void;
@@ -288,9 +297,9 @@ export function SidePane(props: {
   return (
     <aside className="side-pane">
       <div className="tabs">
-        {(["diff", "file", "git"] as PaneTab[]).map((t) => (
+        {(Object.keys(TAB_LABELS) as PaneTab[]).map((t) => (
           <button key={t} className={props.tab === t ? "on" : ""} onClick={() => props.onTab(t)}>
-            {t === "diff" ? "Diff" : t === "file" ? "File" : "Git"}
+            {TAB_LABELS[t]}
           </button>
         ))}
         <span className="spacer" />
@@ -302,6 +311,10 @@ export function SidePane(props: {
         {props.tab === "git" && (
           <GitView cwd={props.cwd} sessionId={props.sessionId} autofix={props.autofix} refresh={props.refresh} onAsk={props.onAsk} onToast={props.onToast} />
         )}
+        {props.tab === "terminal" && (
+          <TerminalPane cwd={props.cwd} terminals={props.terminals} selected={props.terminal} onSelect={props.onTerminal} />
+        )}
+        {props.tab === "preview" && <PreviewPane cwd={props.cwd} previews={props.previews} liveKey={props.liveKey} onToast={props.onToast} />}
       </div>
     </aside>
   );

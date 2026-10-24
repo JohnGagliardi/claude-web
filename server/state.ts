@@ -29,6 +29,8 @@ export type DeviceConfig = {
   // Each device decides how "Reauth" works. The command runs in a shell with
   // CLAUDE_EXE set to the SDK's bundled Claude Code binary.
   reauth?: { command: string; cwd?: string; label?: string };
+  // Installed browser for Claude's headless browser tools: "msedge", "chrome"…
+  browser?: { channel?: string };
 };
 
 const emptyState = (): AppState => ({ projects: [], groups: [], sessions: {} });

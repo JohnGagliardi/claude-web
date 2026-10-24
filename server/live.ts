@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   query,
   type EffortLevel,
+  type Options,
   type PermissionMode,
   type PermissionResult,
   type PermissionUpdate,
@@ -72,6 +73,8 @@ export type StartOptions = {
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
+  // Per-session extras such as the app's MCP tools, built with the session key.
+  extra?: (key: string) => Partial<Options>;
 };
 
 export type PermissionReply =
@@ -99,6 +102,7 @@ export class LiveSession {
     this.q = query({
       prompt: this.input,
       options: {
+        ...opts.extra?.(this.key),
         cwd: opts.cwd,
         resume: opts.resume,
         model: opts.model,

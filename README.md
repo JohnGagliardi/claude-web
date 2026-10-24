@@ -37,3 +37,10 @@ device can instead rotate an API key, refresh a token from a vault, and so on.
 - `web/src`: React UI (sidebar, transcript, composer, permission cards)
 
 See [ROADMAP.md](ROADMAP.md) for what's built and what's next.
+
+## Claude's tools
+
+Each session gets an in-process MCP server (`claude-web`) so Claude can use the
+terminal tabs, start dev servers from `.claude/launch.json`, and drive a headless
+browser. The browser is an installed Edge or Chrome, picked automatically or set
+with `"browser": { "channel": "chrome" }` in `~/.claude-web/config.json`.

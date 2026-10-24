@@ -222,3 +222,21 @@ pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: var
 @media (max-width: 1000px) {
   .side-pane { position: fixed; right: 0; top: 0; bottom: 0; width: min(92vw, 560px); z-index: 5; box-shadow: -8px 0 24px #0003; }
 }
+
+/* Terminal + preview panes */
+.pane-body:has(.term-pane), .pane-body:has(.preview-pane) { overflow: hidden; display: flex; flex-direction: column; }
+.term-pane, .preview-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.term-tabs { flex-wrap: wrap; }
+.term-tab { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 12px; }
+.term-tab.on { border-color: var(--accent); }
+.term-tab.on button:first-child { color: var(--text); }
+.term-tab.dead { opacity: 0.6; }
+.xterm-host { flex: 1; min-height: 0; padding: 6px; background: var(--card); }
+.servers { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--border); }
+.server { display: flex; align-items: center; gap: 8px; }
+.logs { max-height: 180px; overflow: auto; font-size: 11.5px; padding: 6px 10px; background: var(--card); border-bottom: 1px solid var(--border); }
+.url-bar input { flex: 1; min-width: 0; }
+.url-bar a { color: var(--accent); }
+.frame { flex: 1; min-height: 0; width: 100%; border: none; background: #fff; }
+.shot { flex: 1; min-height: 0; overflow: auto; }
+.shot img { display: block; width: 100%; height: auto; }

@@ -44,7 +44,13 @@ export type Bootstrap = {
   live: LiveSummary[];
   reauth: { configured: boolean; label: string; configPath: string };
   home: string;
+  terminals: TerminalInfo[];
+  previews: PreviewInfo[];
 };
+
+export type TerminalInfo = { id: string; title: string; cwd: string; alive: boolean; exitCode?: number; byClaude?: boolean };
+export type PreviewInfo = { id: string; name: string; cwd: string; url: string; status: string; exitCode?: number | null };
+export type LaunchConfig = { name: string; runtimeExecutable?: string; runtimeArgs?: string[]; port?: number; url?: string };
 
 export type RepoInfo = {
   isRepo: boolean;

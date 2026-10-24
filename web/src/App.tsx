@@ -54,6 +54,7 @@ export function App() {
   const [pane, setPane] = useState<PaneTab | null>((stored("pane") as PaneTab) || null);
   const [openFile, setOpenFile] = useState<OpenFile | undefined>();
   const [refresh, setRefresh] = useState(0);
+  const [terminal, setTerminal] = useState<string | undefined>();
 
   useEffect(() => store("pane", pane ?? ""), [pane]);
   useEffect(() => store("useWorktree", useWorktree ? "1" : ""), [useWorktree]);
@@ -142,6 +143,12 @@ export function App() {
         }
         case "error":
           setToast(m.error);
+          break;
+        case "term:list":
+          setBoot((b) => (b ? { ...b, terminals: m.terminals } : b));
+          break;
+        case "preview:list":
+          setBoot((b) => (b ? { ...b, previews: m.previews } : b));
           break;
         case "disconnected":
           setConnected(false);
@@ -287,6 +294,12 @@ export function App() {
                 <button className={pane === "git" ? "on" : ""} onClick={() => setPane(pane === "git" ? null : "git")}>
                   Git
                 </button>
+                <button className={pane === "terminal" ? "on" : ""} onClick={() => setPane(pane === "terminal" ? null : "terminal")}>
+                  Terminal
+                </button>
+                <button className={pane === "preview" ? "on" : ""} onClick={() => setPane(pane === "preview" ? null : "preview")}>
+                  Preview
+                </button>
               </>
             )}
             <button onClick={reauth} title={boot.reauth.configured ? "Run this device's reauth command" : "Not set up on this device"}>
@@ -328,8 +341,13 @@ export function App() {
                   onClose={() => setPane(null)}
                   cwd={view.cwd}
                   sessionId={view.sessionId}
+                  liveKey={current?.key}
                   autofix={info?.autofix}
                   file={openFile}
+                  terminals={boot.terminals}
+                  terminal={terminal}
+                  onTerminal={setTerminal}
+                  previews={boot.previews}
                   refresh={refresh}
                   onOpenFile={(f) => (setOpenFile(f), setPane("file"))}
                   onAsk={send}

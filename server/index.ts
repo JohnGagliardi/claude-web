@@ -17,6 +17,10 @@ import { getState, readConfig, updateSessionMeta, updateState } from "./state.js
 import { reauthInfo, runReauth } from "./reauth.js";
 import { commitAll, createPr, createWorktree, prStatus, push, readFileFor, repoInfo, syncWithBase, workingDiff } from "./git.js";
 import { startAutofix } from "./autofix.js";
+import { Terminals } from "./terminals.js";
+import { Previews, launchConfigs } from "./preview.js";
+import { closeBrowser, closeTab } from "./browser.js";
+import { READ_ONLY_TOOLS, SERVER_NAME, sessionTools } from "./tools.js";
 
 const PORT = Number(process.env.PORT ?? readConfig().port ?? 3737);
 const DEV_PORT = 5173;
@@ -47,15 +51,44 @@ function onLiveEvent(ev: LiveEvent) {
   }
   if (ev.t === "closed") {
     live.delete(ev.key);
+    lastShot.delete(ev.key);
+    void closeTab(ev.key);
     broadcast({ t: "sessions-changed" });
   }
   broadcast(ev);
 }
 
+const terminals = new Terminals(broadcast);
+const previews = new Previews((list) => broadcast({ t: "preview:list", previews: list }));
+// Latest frame of each session's headless browser, for the Preview pane.
+const lastShot = new Map<string, { data: string; url: string }>();
+
 // Resuming a session that already has a live process reuses it.
 function startSession(opts: ConstructorParameters<typeof LiveSession>[0]) {
   const existing = opts.resume ? [...live.values()].find((x) => x.sessionId === opts.resume) : undefined;
-  const session = existing ?? new LiveSession(opts, onLiveEvent);
+  const session =
+    existing ??
+    new LiveSession(
+      {
+        ...opts,
+        extra: (key) => ({
+          mcpServers: {
+            [SERVER_NAME]: sessionTools({
+              key,
+              cwd: opts.cwd,
+              terminals,
+              previews,
+              onShot: (k, data, url) => {
+                lastShot.set(k, { data, url });
+                broadcast({ t: "browser:shot", key: k, data, url });
+              },
+            }),
+          },
+          allowedTools: READ_ONLY_TOOLS,
+        }),
+      },
+      onLiveEvent,
+    );
   live.set(session.key, session);
   return session;
 }
@@ -105,6 +138,8 @@ api.get(
     res.json({
       ...(await sessionList()),
       live: [...live.values()].map((s) => s.summary()),
+      terminals: terminals.list(),
+      previews: previews.list(),
       reauth: reauthInfo(),
       home: os.homedir(),
     });
@@ -194,6 +229,25 @@ api.post("/git/push", wrap(async (req, res) => res.json({ output: await push(fol
 api.get("/git/pr", wrap(async (req, res) => res.json(await prStatus(folder(req)))));
 api.post("/git/pr", wrap(async (req, res) => res.json({ url: await createPr(folder(req), !!req.body?.draft) })));
 
+api.get("/terminals", (_req, res) => res.json(terminals.list()));
+api.get(
+  "/preview",
+  wrap(async (req, res) => {
+    const cwd = folder(req);
+    res.json({ configs: launchConfigs(cwd), running: previews.list() });
+  }),
+);
+api.post("/preview/start", wrap(async (req, res) => res.json(await previews.start(folder(req), String(req.body?.name)))));
+api.post(
+  "/preview/stop",
+  wrap(async (req, res) => {
+    previews.stop(String(req.body?.id));
+    res.json({ ok: true });
+  }),
+);
+api.get("/preview/logs", (req, res) => res.json(previews.logs(String(req.query.id), { lines: 300 })));
+api.get("/browser/shot", (req, res) => res.json(lastShot.get(String(req.query.key)) ?? null));
+
 app.use("/api", api);
 
 const dist = path.resolve("dist");
@@ -260,6 +314,23 @@ wss.on("connection", (ws) => {
         case "close":
           s?.close();
           break;
+        case "term:open": {
+          const t = terminals.open(m.cwd, { cols: m.cols, rows: m.rows });
+          ws.send(JSON.stringify({ t: "term:opened", ref: m.ref, id: t.id }));
+          break;
+        }
+        case "term:input":
+          terminals.write(m.id, m.data);
+          break;
+        case "term:resize":
+          terminals.resize(m.id, m.cols, m.rows);
+          break;
+        case "term:attach":
+          ws.send(JSON.stringify({ t: "term:replay", id: m.id, data: terminals.scrollback(m.id) }));
+          break;
+        case "term:close":
+          terminals.close(m.id);
+          break;
       }
     } catch (e) {
       ws.send(JSON.stringify({ t: "error", key: m.key, error: String((e as Error)?.message ?? e) }));
@@ -271,7 +342,12 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`claude-web listening on http://localhost:${PORT}`);
 });
 
-process.on("SIGINT", () => {
+const shutdown = async () => {
   for (const s of live.values()) s.close();
+  terminals.closeAll();
+  previews.stopAll();
+  await closeBrowser();
   process.exit(0);
-});
+};
+process.on("SIGINT", () => void shutdown());
+process.on("SIGTERM", () => void shutdown());

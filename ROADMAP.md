@@ -21,11 +21,12 @@ Mirror of the Claude desktop app's Code tab, minus account management.
 - [x] Sync with base (conflicts go to Claude), commit (or ask Claude to), push, create PR via `gh`
 - [x] PR status and CI checks; Auto-fix polls every 90s and messages the session on new CI failures or conflicts
 
-## Phase 3: terminal and browser panes
+## Phase 3: terminal and browser panes (done)
 
-- [ ] Terminal tabs (xterm.js, plus node-pty or a pipe fallback on Windows)
-- [ ] Preview pane for local dev servers (`.claude/launch.json`)
-- [ ] Headless browser tools exposed to Claude as an in-process MCP server
+- [x] Terminal tabs (xterm.js + node-pty prebuilds), shared with Claude, scrollback replayed on reload
+- [x] Preview pane: start/stop dev servers from `.claude/launch.json`, logs, URL bar, iframe
+- [x] Claude's headless browser (installed Edge/Chrome via playwright-core), shown live in the Preview pane
+- [x] In-process MCP tools for Claude: terminal_list/read/run, preview_list/start/stop/logs, browser_navigate/screenshot/text/click/type/eval/console (read-only ones pre-approved)
 
 ## Phase 4: scheduling and side sessions
 
