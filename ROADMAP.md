@@ -13,13 +13,13 @@ Mirror of the Claude desktop app's Code tab, minus account management.
 - [x] Reauth button backed by a per-device command
 - [x] Loopback-only server with Host and Origin checks
 
-## Phase 2: git, worktrees, diff
+## Phase 2: git, worktrees, diff (done)
 
-- [ ] Option to start a session in a new git worktree (branch per session)
-- [ ] Diff pane: working-tree diff for the session's folder, per file
-- [ ] File viewer pane, with clickable `path:line` links in the transcript
-- [ ] Sync with base branch, commit, push, create PR (via `gh`)
-- [ ] PR status and CI checks; Auto-fix that wakes the session on CI failure
+- [x] Option to start a session in a new git worktree (`<repo>/.claude/worktrees/<name>`, branch `claude/<name>`)
+- [x] Diff pane: uncommitted or all-vs-base changes, per file, untracked files included
+- [x] File viewer pane, opened from `path:line` links and tool cards in the transcript
+- [x] Sync with base (conflicts go to Claude), commit (or ask Claude to), push, create PR via `gh`
+- [x] PR status and CI checks; Auto-fix polls every 90s and messages the session on new CI failures or conflicts
 
 ## Phase 3: terminal and browser panes
 

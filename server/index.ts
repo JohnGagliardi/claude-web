@@ -15,6 +15,8 @@ import {
 import { LiveSession, type LiveEvent } from "./live.js";
 import { getState, readConfig, updateSessionMeta, updateState } from "./state.js";
 import { reauthInfo, runReauth } from "./reauth.js";
+import { commitAll, createPr, createWorktree, prStatus, push, readFileFor, repoInfo, syncWithBase, workingDiff } from "./git.js";
+import { startAutofix } from "./autofix.js";
 
 const PORT = Number(process.env.PORT ?? readConfig().port ?? 3737);
 const DEV_PORT = 5173;
@@ -49,6 +51,19 @@ function onLiveEvent(ev: LiveEvent) {
   }
   broadcast(ev);
 }
+
+// Resuming a session that already has a live process reuses it.
+function startSession(opts: ConstructorParameters<typeof LiveSession>[0]) {
+  const existing = opts.resume ? [...live.values()].find((x) => x.sessionId === opts.resume) : undefined;
+  const session = existing ?? new LiveSession(opts, onLiveEvent);
+  live.set(session.key, session);
+  return session;
+}
+
+startAutofix(
+  (sessionId, cwd, text) => startSession({ cwd, resume: sessionId }).send(text),
+  (sessionId) => [...live.values()].some((s) => s.sessionId === sessionId && (s.running || s.summary().pending.length > 0)),
+);
 
 async function sessionList() {
   const state = getState();
@@ -153,6 +168,32 @@ api.get(
 
 api.post("/reauth", wrap(async (_req, res) => res.json(await runReauth())));
 
+// Git endpoints act on a session's folder, passed as ?cwd= or { cwd }.
+function folder(req: express.Request): string {
+  const cwd = String((req.method === "GET" ? req.query.cwd : req.body?.cwd) ?? "");
+  if (!cwd || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`Not a folder: ${cwd}`);
+  return cwd;
+}
+
+api.get("/git/info", wrap(async (req, res) => res.json(await repoInfo(folder(req)))));
+api.get(
+  "/git/diff",
+  wrap(async (req, res) => res.json(await workingDiff(folder(req), req.query.against === "base" ? "base" : "HEAD"))),
+);
+api.get("/git/file", wrap(async (req, res) => res.json(readFileFor(folder(req), String(req.query.path ?? "")))));
+api.post("/git/sync", wrap(async (req, res) => res.json(await syncWithBase(folder(req)))));
+api.post(
+  "/git/commit",
+  wrap(async (req, res) => {
+    const message = String(req.body?.message ?? "").trim();
+    if (!message) return res.status(400).json({ error: "A commit message is required." });
+    res.json({ output: await commitAll(folder(req), message) });
+  }),
+);
+api.post("/git/push", wrap(async (req, res) => res.json({ output: await push(folder(req)) })));
+api.get("/git/pr", wrap(async (req, res) => res.json(await prStatus(folder(req)))));
+api.post("/git/pr", wrap(async (req, res) => res.json({ url: await createPr(folder(req), !!req.body?.draft) })));
+
 app.use("/api", api);
 
 const dist = path.resolve("dist");
@@ -185,15 +226,12 @@ wss.on("connection", (ws) => {
     try {
       switch (m.t) {
         case "start": {
-          // Resuming a session that already has a live process reuses it.
-          const existing = m.resume ? [...live.values()].find((x) => x.sessionId === m.resume) : undefined;
-          const session =
-            existing ??
-            new LiveSession(
-              { cwd: m.cwd, resume: m.resume, model: m.model, effort: m.effort, permissionMode: m.permissionMode },
-              onLiveEvent,
-            );
-          live.set(session.key, session);
+          let cwd: string = m.cwd;
+          if (m.worktree && !m.resume) {
+            const wt = await createWorktree(cwd, String(m.text ?? "session").split(/\s+/).slice(0, 5).join(" "));
+            cwd = wt.path;
+          }
+          const session = startSession({ cwd, resume: m.resume, model: m.model, effort: m.effort, permissionMode: m.permissionMode });
           ws.send(JSON.stringify({ t: "started", ref: m.ref, session: session.summary() }));
           if (m.text) session.send(m.text);
           break;

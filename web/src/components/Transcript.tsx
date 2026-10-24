@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Item } from "../transcript";
 import { toolSummary } from "../transcript";
 import { Markdown } from "./Markdown";
+import { useOpenFile } from "../fileLinks";
 
 const LIMIT = 4000;
 
@@ -20,12 +21,22 @@ function Clipped({ text, className }: { text: string; className?: string }) {
   );
 }
 
+function FilePath({ path }: { path?: string }) {
+  const open = useOpenFile();
+  if (!path) return null;
+  return (
+    <button className="link mono" onClick={() => open(path)} title="Open in file pane">
+      {path}
+    </button>
+  );
+}
+
 function ToolBody({ name, input }: { name: string; input: any }) {
   if ((name === "Edit" || name === "MultiEdit") && input) {
     const edits = name === "MultiEdit" ? input.edits ?? [] : [input];
     return (
       <div className="diff">
-        <div className="muted mono">{input.file_path}</div>
+        <FilePath path={input.file_path} />
         {edits.map((e: any, i: number) => (
           <pre key={i}>
             {String(e.old_string ?? "")
@@ -46,12 +57,13 @@ function ToolBody({ name, input }: { name: string; input: any }) {
   if (name === "Write" && input) {
     return (
       <div>
-        <div className="muted mono">{input.file_path}</div>
+        <FilePath path={input.file_path} />
         <Clipped text={String(input.content ?? "")} />
       </div>
     );
   }
   if (name === "Bash" && input?.command) return <Clipped text={`$ ${input.command}`} />;
+  if (name === "Read" && input?.file_path) return <FilePath path={input.file_path} />;
   return <Clipped text={JSON.stringify(input, null, 2)} />;
 }
 

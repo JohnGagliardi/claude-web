@@ -5,13 +5,32 @@ import { Sidebar, type SidebarItem } from "./components/Sidebar";
 import { Transcript } from "./components/Transcript";
 import { Composer, type ComposerSettings } from "./components/Composer";
 import { PermissionCard, type Reply } from "./components/Permission";
+import { SidePane, parseFileRef, type OpenFile, type PaneTab } from "./components/SidePane";
+import { OpenFileContext } from "./fileLinks";
+
+const stored = (k: string) => {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
+const store = (k: string, v: string) => {
+  try {
+    localStorage.setItem(k, v);
+  } catch {}
+};
 
 type View = { sessionId?: string; liveKey?: string; cwd: string };
 
 const emptyCatalog: Catalog = { models: [], commands: [] };
 const catalogs = new Map<string, Promise<Catalog>>();
 const loadCatalog = (cwd: string) => {
-  if (!catalogs.has(cwd)) catalogs.set(cwd, api<Catalog>(`/catalog?cwd=${encodeURIComponent(cwd)}`).catch(() => emptyCatalog));
+  if (!catalogs.has(cwd))
+    catalogs.set(
+      cwd,
+      api<Catalog>(`/catalog?cwd=${encodeURIComponent(cwd)}`).catch(() => emptyCatalog),
+    );
   return catalogs.get(cwd)!;
 };
 
@@ -31,6 +50,26 @@ export function App() {
   const [newCwd, setNewCwd] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [connected, setConnected] = useState(true);
+  const [useWorktree, setUseWorktree] = useState(stored("useWorktree") === "1");
+  const [pane, setPane] = useState<PaneTab | null>((stored("pane") as PaneTab) || null);
+  const [openFile, setOpenFile] = useState<OpenFile | undefined>();
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => store("pane", pane ?? ""), [pane]);
+  useEffect(() => store("useWorktree", useWorktree ? "1" : ""), [useWorktree]);
+
+  // Re-read the diff and git state after each tool result or finished turn.
+  const lastType = liveLog[liveLog.length - 1]?.type;
+  useEffect(() => {
+    if (lastType !== "user" && lastType !== "result") return;
+    const t = setTimeout(() => setRefresh((r) => r + 1), 600);
+    return () => clearTimeout(t);
+  }, [liveLog.length, lastType]);
+
+  const showFile = useCallback((ref: string) => {
+    setOpenFile(parseFileRef(ref));
+    setPane("file");
+  }, []);
 
   const live = boot?.live ?? [];
   const current = findLive(live, view);
@@ -57,8 +96,7 @@ export function App() {
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const upsertLive = (s: LiveSummary) =>
-      setBoot((b) => (b ? { ...b, live: [...b.live.filter((l) => l.key !== s.key), s] } : b));
+    const upsertLive = (s: LiveSummary) => setBoot((b) => (b ? { ...b, live: [...b.live.filter((l) => l.key !== s.key), s] } : b));
 
     return socket.on((m) => {
       switch (m.t) {
@@ -71,7 +109,8 @@ export function App() {
         case "started":
           if (m.ref !== pendingRef.current) break;
           upsertLive(m.session);
-          setView((v) => (v ? { ...v, liveKey: m.session.key, sessionId: v.sessionId ?? m.session.sessionId } : v));
+          // cwd can change here: a worktree session runs in its new folder.
+          setView((v) => (v ? { ...v, cwd: m.session.cwd, liveKey: m.session.key, sessionId: v.sessionId ?? m.session.sessionId } : v));
           keyRef.current = m.session.key;
           break;
         case "closed":
@@ -152,7 +191,7 @@ export function App() {
     if (current) return socket.send({ t: "send", key: current.key, text });
     const ref = crypto.randomUUID();
     pendingRef.current = ref;
-    socket.send({ t: "start", ref, cwd: view.cwd, resume: view.sessionId, text, ...draft });
+    socket.send({ t: "start", ref, cwd: view.cwd, resume: view.sessionId, worktree: !view.sessionId && useWorktree, text, ...draft });
   };
 
   const changeSettings = (patch: Partial<ComposerSettings>) => {
@@ -206,80 +245,115 @@ export function App() {
   if (!boot) return <div className="boot">{connected ? "Loading…" : "Can't reach the claude-web server."}</div>;
 
   return (
-    <div className="app">
-      <Sidebar
-        sessions={boot.sessions}
-        live={live}
-        projects={boot.projects.length ? boot.projects : [boot.home]}
-        selected={view ?? undefined}
-        newCwd={newCwd}
-        onNewCwd={setNewCwd}
-        onAddProject={addProject}
-        onNew={newSession}
-        onSelect={select}
-        onMeta={(s, patch) => void api(`/sessions/${s.sessionId}/meta`, { json: patch }).catch((e) => setToast(e.message))}
-        onDelete={(s) => {
-          if (confirm(`Permanently delete "${s.customTitle || s.summary}"? This removes the transcript file.`))
-            void api(`/sessions/${s.sessionId}?dir=${encodeURIComponent(s.cwd ?? "")}`, { method: "DELETE" }).catch((e) => setToast(e.message));
-        }}
-      />
-      <main className="main">
-        <header className="topbar">
-          <div className="topbar-title">
-            <div className="title">{view ? info?.customTitle || info?.summary || "New session" : "Claude Web"}</div>
-            {view && (
-              <div className="muted small mono">
-                {view.cwd}
-                {info?.gitBranch && ` · ${info.gitBranch}`}
-              </div>
-            )}
-          </div>
-          {!connected && <span className="chip warn">Reconnecting…</span>}
-          <button onClick={reauth} title={boot.reauth.configured ? "Run this device's reauth command" : "Not set up on this device"}>
-            ⟳ {boot.reauth.label}
-          </button>
-        </header>
-        {view ? (
-          <>
-            <Transcript items={items} partial={partial} running={running} />
-            <div className="dock">
-              {current?.error && <div className="banner err">{current.error}</div>}
-              {todos && (
-                <div className="todos">
-                  {todos.map((t, i) => (
-                    <div key={i} className={`todo ${t.status}`}>
-                      <span>{t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○"}</span>
-                      {t.status === "in_progress" ? t.activeForm ?? t.content : t.content}
-                    </div>
-                  ))}
+    <OpenFileContext.Provider value={showFile}>
+      <div className="app">
+        <Sidebar
+          sessions={boot.sessions}
+          live={live}
+          projects={boot.projects.length ? boot.projects : [boot.home]}
+          selected={view ?? undefined}
+          newCwd={newCwd}
+          onNewCwd={setNewCwd}
+          useWorktree={useWorktree}
+          onUseWorktree={setUseWorktree}
+          onAddProject={addProject}
+          onNew={newSession}
+          onSelect={select}
+          onMeta={(s, patch) => void api(`/sessions/${s.sessionId}/meta`, { json: patch }).catch((e) => setToast(e.message))}
+          onDelete={(s) => {
+            if (confirm(`Permanently delete "${s.customTitle || s.summary}"? This removes the transcript file.`))
+              void api(`/sessions/${s.sessionId}?dir=${encodeURIComponent(s.cwd ?? "")}`, { method: "DELETE" }).catch((e) =>
+                setToast(e.message),
+              );
+          }}
+        />
+        <main className="main">
+          <header className="topbar">
+            <div className="topbar-title">
+              <div className="title">{view ? info?.customTitle || info?.summary || "New session" : "Claude Web"}</div>
+              {view && (
+                <div className="muted small mono">
+                  {view.cwd}
+                  {info?.gitBranch && ` · ${info.gitBranch}`}
                 </div>
               )}
-              {current?.pending.map((p) => <PermissionCard key={p.id} p={p} onReply={(r) => reply(p.id, r)} />)}
-              <Composer
-                running={running}
-                settings={settings}
-                models={catalog.models}
-                commands={catalog.commands}
-                onSettings={changeSettings}
-                onSend={send}
-                onStop={() => current && socket.send({ t: "interrupt", key: current.key })}
-              />
             </div>
-          </>
-        ) : (
-          <div className="empty">
-            <h1>Claude Web</h1>
-            <p className="muted">Pick a session on the left, or start a new one in {newCwd || boot.home}.</p>
-            <button className="primary" onClick={newSession}>+ New session</button>
+            {!connected && <span className="chip warn">Reconnecting…</span>}
+            {view && (
+              <>
+                <button className={pane === "diff" ? "on" : ""} onClick={() => setPane(pane === "diff" ? null : "diff")}>
+                  Diff
+                </button>
+                <button className={pane === "git" ? "on" : ""} onClick={() => setPane(pane === "git" ? null : "git")}>
+                  Git
+                </button>
+              </>
+            )}
+            <button onClick={reauth} title={boot.reauth.configured ? "Run this device's reauth command" : "Not set up on this device"}>
+              ⟳ {boot.reauth.label}
+            </button>
+          </header>
+          {view ? (
+            <div className="workspace">
+              <div className="chat">
+                <Transcript items={items} partial={partial} running={running} />
+                <div className="dock">
+                  {current?.error && <div className="banner err">{current.error}</div>}
+                  {todos && (
+                    <div className="todos">
+                      {todos.map((t, i) => (
+                        <div key={i} className={`todo ${t.status}`}>
+                          <span>{t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○"}</span>
+                          {t.status === "in_progress" ? (t.activeForm ?? t.content) : t.content}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {current?.pending.map((p) => <PermissionCard key={p.id} p={p} onReply={(r) => reply(p.id, r)} />)}
+                  <Composer
+                    running={running}
+                    settings={settings}
+                    models={catalog.models}
+                    commands={catalog.commands}
+                    onSettings={changeSettings}
+                    onSend={send}
+                    onStop={() => current && socket.send({ t: "interrupt", key: current.key })}
+                  />
+                </div>
+              </div>
+              {pane && (
+                <SidePane
+                  tab={pane}
+                  onTab={setPane}
+                  onClose={() => setPane(null)}
+                  cwd={view.cwd}
+                  sessionId={view.sessionId}
+                  autofix={info?.autofix}
+                  file={openFile}
+                  refresh={refresh}
+                  onOpenFile={(f) => (setOpenFile(f), setPane("file"))}
+                  onAsk={send}
+                  onToast={setToast}
+                />
+              )}
+            </div>
+          ) : (
+            <div className="empty">
+              <h1>Claude Web</h1>
+              <p className="muted">Pick a session on the left, or start a new one in {newCwd || boot.home}.</p>
+              <button className="primary" onClick={newSession}>
+                + New session
+              </button>
+            </div>
+          )}
+        </main>
+        {toast && (
+          <div className="toast" onClick={() => setToast(null)}>
+            <pre>{toast}</pre>
+            <span className="muted small">click to dismiss</span>
           </div>
         )}
-      </main>
-      {toast && (
-        <div className="toast" onClick={() => setToast(null)}>
-          <pre>{toast}</pre>
-          <span className="muted small">click to dismiss</span>
-        </div>
-      )}
-    </div>
+      </div>
+    </OpenFileContext.Provider>
   );
 }

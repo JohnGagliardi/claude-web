@@ -13,6 +13,9 @@ export type SessionMeta = {
   archived?: boolean;
   unread?: boolean;
   group?: string;
+  // Auto-fix watches the PR for this session's folder.
+  autofix?: boolean;
+  cwd?: string;
 };
 
 export type AppState = {

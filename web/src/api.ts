@@ -14,6 +14,7 @@ export type SessionInfo = {
   archived?: boolean;
   unread?: boolean;
   group?: string;
+  autofix?: boolean;
 };
 
 export type PendingPermission = {
@@ -45,7 +46,34 @@ export type Bootstrap = {
   home: string;
 };
 
-export type ModelInfo = { value: string; displayName: string; description: string; supportsEffort?: boolean };
+export type RepoInfo = {
+  isRepo: boolean;
+  root?: string;
+  branch?: string;
+  base?: string;
+  ahead?: number;
+  behind?: number;
+  dirty?: number;
+  isWorktree?: boolean;
+  hasRemote?: boolean;
+};
+export type FileDiff = { path: string; oldPath?: string; status: string; added: number; removed: number; patch: string; binary: boolean };
+export type Check = { name: string; status: string; conclusion: string; url?: string };
+export type PrStatus = {
+  number: number;
+  url: string;
+  title: string;
+  state: string;
+  isDraft: boolean;
+  mergeable: string;
+  reviewDecision: string;
+  checks: Check[];
+};
+
+export const q = (params: Record<string, string | undefined>) =>
+  "?" + new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => e[1] !== undefined)).toString();
+
+export type ModelInfo ={ value: string; displayName: string; description: string; supportsEffort?: boolean };
 export type SlashCommand = { name: string; description: string; argumentHint: string };
 export type Catalog = { models: ModelInfo[]; commands: SlashCommand[] };
 

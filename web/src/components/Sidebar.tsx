@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import type { LiveSummary, SessionInfo } from "../api";
 
 const base = (p?: string) => (p ? p.split(/[\\/]/).filter(Boolean).pop() ?? p : "Other");
+// Worktree sessions are listed under the repo they came from.
+const repoOf = (cwd?: string) => (cwd ?? "").split(/[\\/]\.claude[\\/]worktrees[\\/]/)[0];
 
 function ago(ms: number) {
   const s = (Date.now() - ms) / 1000;
@@ -20,6 +22,8 @@ export function Sidebar(props: {
   selected?: { sessionId?: string; liveKey?: string };
   newCwd: string;
   onNewCwd: (cwd: string) => void;
+  useWorktree: boolean;
+  onUseWorktree: (v: boolean) => void;
   onAddProject: () => void;
   onNew: () => void;
   onSelect: (s: SidebarItem) => void;
@@ -61,7 +65,7 @@ export function Sidebar(props: {
   const pinned = items.filter((s) => s.pinned);
   const groups = new Map<string, SidebarItem[]>();
   for (const s of items.filter((s) => !s.pinned)) {
-    const k = s.cwd ?? "";
+    const k = repoOf(s.cwd);
     groups.set(k, [...(groups.get(k) ?? []), s]);
   }
 
@@ -77,6 +81,7 @@ export function Sidebar(props: {
     >
       <span className={`status ${s.needsYou ? "needs" : s.running ? "running" : s.unread ? "unread" : ""}`} />
       <span className="title">{s.customTitle || s.summary || s.firstPrompt || "Untitled"}</span>
+      {repoOf(s.cwd) !== (s.cwd ?? "") && <span className="wt" title="Runs in its own worktree">⑂</span>}
       <span className="when">{ago(s.lastModified)}</span>
       {s.sessionId && (
         <span className="actions" onClick={(e) => e.stopPropagation()}>
@@ -118,6 +123,10 @@ export function Sidebar(props: {
           <option value="__add">Add folder…</option>
         </select>
       </div>
+      <label className="option small" title="Start new sessions on their own branch in <repo>/.claude/worktrees">
+        <input type="checkbox" checked={props.useWorktree} onChange={(e) => props.onUseWorktree(e.target.checked)} />
+        New session in its own worktree
+      </label>
       <input className="search" placeholder="Search sessions" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="session-list">
         {pinned.length > 0 && (
