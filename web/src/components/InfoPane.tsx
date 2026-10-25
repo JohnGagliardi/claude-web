@@ -304,6 +304,8 @@ const elapsed = (ms: number) => {
 export function BackgroundTasks({ live, log, onToast }: { live?: LiveSummary; log: RawMsg[]; onToast: (t: string) => void }) {
   const [now, setNow] = useState(Date.now());
   const [showDone, setShowDone] = useState(false);
+  const [open, setOpen] = useState<string>();
+  const toggle = (id: string) => setOpen(open === id ? undefined : id);
 
   const running = useMemo(() => {
     if (!live) return [];
@@ -324,14 +326,14 @@ export function BackgroundTasks({ live, log, onToast }: { live?: LiveSummary; lo
 
   // Finished tasks: live notifications, plus the ones saved in the transcript.
   const finished = useMemo(() => {
-    const out: { id: string; status: string; summary: string }[] = [];
+    const out: { id: string; status: string; summary: string; file?: string }[] = [];
     for (const m of log) {
-      if (m.type === "system" && m.subtype === "task_notification") out.push({ id: m.task_id, status: m.status, summary: m.summary });
+      if (m.type === "system" && m.subtype === "task_notification") out.push({ id: m.task_id, status: m.status, summary: m.summary, file: m.output_file });
       const c = m.type === "user" ? m.message?.content : undefined;
       const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((b: any) => (b?.type === "text" ? b.text : "")).join("") : "";
       if (text.trimStart().startsWith("<task-notification>")) {
         const tag = (n: string) => text.match(new RegExp(`<${n}>([\\s\\S]*?)</${n}>`))?.[1]?.trim() ?? "";
-        out.push({ id: tag("task-id") || `${out.length}`, status: tag("status"), summary: tag("summary") });
+        out.push({ id: tag("task-id") || `${out.length}`, status: tag("status"), summary: tag("summary"), file: tag("output-file") || undefined });
       }
     }
     const seen = new Set<string>();
@@ -342,7 +344,8 @@ export function BackgroundTasks({ live, log, onToast }: { live?: LiveSummary; lo
   return (
     <div className="task-list">
       {running.map((t) => (
-        <div key={t.task_id} className="env-row">
+        <div key={t.task_id}>
+        <div className="env-row task-row" onClick={() => toggle(t.task_id)}>
           {t.task_type === "local_agent" ? <AgentIcon /> : <TerminalIcon />}
           <span className="env-name" title={t.description}>
             {t.description}
@@ -352,10 +355,15 @@ export function BackgroundTasks({ live, log, onToast }: { live?: LiveSummary; lo
             className="icon-btn tiny"
             title="Stop"
             aria-label="Stop"
-            onClick={() => live && void api(`/live/${live.key}/tasks/${t.task_id}/stop`, { json: {} }).catch((e) => onToast(e.message))}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (live) void api(`/live/${live.key}/tasks/${t.task_id}/stop`, { json: {} }).catch((err) => onToast(err.message));
+            }}
           >
             <StopIcon />
           </button>
+        </div>
+        {open === t.task_id && <TaskOutput liveKey={live?.key} taskId={t.task_id} running />}
         </div>
       ))}
       {finished.length > 0 && (
@@ -366,10 +374,44 @@ export function BackgroundTasks({ live, log, onToast }: { live?: LiveSummary; lo
       )}
       {showDone &&
         finished.map((t) => (
-          <div key={t.id} className={`done-task ${t.status === "completed" ? "" : "err"}`} title={t.status}>
-            {t.summary || t.status}
+          <div key={t.id}>
+            <button className={`done-task ${t.status === "completed" ? "" : "err"}`} title={t.status} onClick={() => toggle(t.id)}>
+              {t.summary || t.status}
+            </button>
+            {open === t.id && <TaskOutput liveKey={live?.key} taskId={t.id} file={t.file} />}
           </div>
         ))}
     </div>
+  );
+}
+
+// The tail of one task's console output, refreshed every 2s while it runs.
+function TaskOutput({ liveKey, taskId, file, running }: { liveKey?: string; taskId: string; file?: string; running?: boolean }) {
+  const [out, setOut] = useState<{ output: string; truncated: boolean; gone?: boolean }>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api<{ output: string; truncated: boolean; gone?: boolean }>("/task-output", { json: { key: liveKey, taskId, file } })
+        .then((r) => alive && (setOut(r), setError(undefined)))
+        .catch((e) => alive && setError(e.message));
+    void load();
+    const t = running ? setInterval(load, 2000) : undefined;
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [liveKey, taskId, file, running]);
+  const ref = (el: HTMLPreElement | null) => {
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+  if (error) return <div className="muted small task-out-note">{error}</div>;
+  if (!out) return <div className="muted small task-out-note">Loading…</div>;
+  if (out.gone) return <div className="muted small task-out-note">The output file is gone.</div>;
+  return (
+    <pre className="task-out" ref={ref}>
+      {out.truncated && <span className="muted">{"… earlier output cut off\n"}</span>}
+      {out.output.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "") || <span className="muted">No output yet.</span>}
+    </pre>
   );
 }

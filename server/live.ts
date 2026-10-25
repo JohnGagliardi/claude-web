@@ -290,6 +290,11 @@ export class LiveSession {
     return this.q.stopTask(taskId);
   }
 
+  // Last 8 KiB a shell or Monitor task wrote; not in the typed Query surface yet.
+  taskOutput(taskId: string): Promise<{ output: string; total_bytes: number; truncated: boolean }> {
+    return (this.q as unknown as { getTaskOutput(id: string): Promise<{ output: string; total_bytes: number; truncated: boolean }> }).getTaskOutput(taskId);
+  }
+
   close() {
     this.input.close();
     this.q.close();

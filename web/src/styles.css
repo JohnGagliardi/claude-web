@@ -463,3 +463,12 @@ body.dragging iframe { pointer-events: none; }
   .pane-slot .side-pane { position: static; width: 100%; box-shadow: none; }
   .splitter { display: none; }
 }
+.task-row { cursor: pointer; }
+button.done-task { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; border-radius: 6px; }
+button.done-task:hover, .task-row:hover { background: var(--hover); }
+.task-out {
+  margin: 4px 0 8px 26px; padding: 8px 10px; max-height: 320px; overflow: auto;
+  background: var(--raised); border: 1px solid var(--border); border-radius: 8px;
+  font: 11.5px/1.45 var(--mono, ui-monospace, Consolas, monospace); white-space: pre-wrap; word-break: break-all;
+}
+.task-out-note { padding: 2px 0 6px 26px; }

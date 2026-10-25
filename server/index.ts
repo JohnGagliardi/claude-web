@@ -346,6 +346,39 @@ api.post(
     res.json({ ok: true });
   }),
 );
+// The tail of a background task's output: from the live session when there is
+// one, else from its saved output file under Claude Code's temp folder.
+const TASK_OUTPUT_ROOT = path.join(os.tmpdir(), "claude");
+api.post(
+  "/task-output",
+  wrap(async (req, res) => {
+    const { key, taskId, file } = (req.body ?? {}) as { key?: string; taskId?: string; file?: string };
+    const s = key ? live.get(key) : undefined;
+    if (s && taskId) {
+      try {
+        return void res.json(await s.taskOutput(taskId));
+      } catch (e) {
+        if (!file) throw e;
+      }
+    }
+    const full = file ? path.resolve(file) : "";
+    if (!full.startsWith(TASK_OUTPUT_ROOT + path.sep) || !full.endsWith(".output")) {
+      return void res.status(404).json({ error: "No output for this task." });
+    }
+    const MAX = 8192;
+    const fd = await fs.promises.open(full, "r").catch(() => undefined);
+    if (!fd) return void res.json({ output: "", total_bytes: 0, truncated: false, gone: true });
+    try {
+      const { size } = await fd.stat();
+      const start = Math.max(0, size - MAX);
+      const buf = Buffer.alloc(size - start);
+      await fd.read(buf, 0, buf.length, start);
+      res.json({ output: buf.toString("utf8"), total_bytes: size, truncated: start > 0 });
+    } finally {
+      await fd.close();
+    }
+  }),
+);
 
 // Git endpoints act on a session's folder, passed as ?cwd= or { cwd }.
 function folder(req: express.Request): string {
