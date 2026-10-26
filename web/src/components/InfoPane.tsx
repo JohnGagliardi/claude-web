@@ -86,7 +86,6 @@ export function InfoPane(props: {
   const { live, log } = props;
   const [info, setInfo] = useState<Info | null>(null);
   const [moreOutputs, setMoreOutputs] = useState(false);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!live) return setInfo(null);
@@ -119,23 +118,10 @@ export function InfoPane(props: {
     return undefined;
   }, [log]);
 
-  const reconnect = async (name: string) => {
-    if (!live) return;
-    setBusy(true);
-    try {
-      const mcp = await api<McpServer[]>(`/live/${live.key}/mcp`, { json: { name, reconnect: true } });
-      setInfo((i) => (i ? { ...i, mcp } : i));
-    } catch (e) {
-      props.onToast((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const ctx = info && !failed(info.context) ? info.context : undefined;
   const servers = info && !failed(info.mcp) ? info.mcp.filter((s) => !INTERNAL_SERVERS.has(s.name)) : undefined;
+  // Only connected servers, as in the desktop app.
   const connected = servers?.filter((s) => s.status === "connected") ?? [];
-  const notConnected: McpServer[] = [];
   // Largest first, then the compaction buffer, then free space.
   const inWindow = (ctx?.categories.filter((c) => c.kind !== "deferred") ?? []).sort(
     (a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || b.tokens - a.tokens,
@@ -244,26 +230,15 @@ export function InfoPane(props: {
           <div className="muted">Shows while the session is running.</div>
         ) : !servers ? (
           <div className="muted">{info && failed(info.mcp) ? info.mcp.error : "Loading…"}</div>
-        ) : connected.length + notConnected.length === 0 ? (
+        ) : connected.length === 0 ? (
           <div className="muted">No connectors.</div>
         ) : (
-          <>
-            {connected.map((s) => (
-              <div key={s.name} className="env-row">
-                <span className="conn-tile">{s.name.replace(/^claude\.ai /, "")[0]?.toUpperCase()}</span>
-                <span className="env-name">{s.name.replace(/^claude\.ai /, "")}</span>
-              </div>
-            ))}
-            {notConnected.map((s) => (
-              <div key={s.name} className="env-row muted" title={s.error ?? s.status}>
-                <span className="conn-tile off">{s.name.replace(/^claude\.ai /, "")[0]?.toUpperCase()}</span>
-                <span className="env-name">{s.name.replace(/^claude\.ai /, "")}</span>
-                <button className="link small" disabled={busy} onClick={() => void reconnect(s.name)}>
-                  {s.status === "needs-auth" ? "Sign in" : "Retry"}
-                </button>
-              </div>
-            ))}
-          </>
+          connected.map((s) => (
+            <div key={s.name} className="env-row">
+              <span className="conn-tile">{s.name.replace(/^claude\.ai /, "")[0]?.toUpperCase()}</span>
+              <span className="env-name">{s.name.replace(/^claude\.ai /, "")}</span>
+            </div>
+          ))
         )}
       </Card>
 

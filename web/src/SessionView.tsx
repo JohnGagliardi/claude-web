@@ -113,16 +113,24 @@ export function SessionView(props: {
 
   useEffect(() => store(`pane${props.slot}`, pane ?? ""), [pane, props.slot]);
 
-  // Initial load: the persisted transcript, then the live process's log if any.
+  // The persisted transcript. It's re-read whenever the live log is replayed,
+  // because that replay holds only Claude's side: the user's own prompts come
+  // from the transcript file.
+  const loadPrior = () => {
+    const { sessionId, cwd } = viewRef.current;
+    if (!sessionId) return;
+    void api<RawMsg[]>(`/sessions/${sessionId}/messages?dir=${encodeURIComponent(cwd)}`)
+      .then(setPrior)
+      .catch((e) => props.onToast(String(e.message)));
+  };
+
+  // Initial load: the live process's log (which re-reads the transcript), or
+  // just the transcript when nothing is running.
   useEffect(() => {
-    if (view.sessionId) {
-      void api<RawMsg[]>(`/sessions/${view.sessionId}/messages?dir=${encodeURIComponent(view.cwd)}`)
-        .then(setPrior)
-        .catch((e) => props.onToast(String(e.message)));
-      void api(`/sessions/${view.sessionId}/meta`, { json: { unread: false } }).catch(() => {});
-    }
+    if (view.sessionId) void api(`/sessions/${view.sessionId}/meta`, { json: { unread: false } }).catch(() => {});
     const key = findLive(boot.live, view)?.key;
     if (key) socket.send({ t: "subscribe", key });
+    else loadPrior();
     // Mounted once per view id; later id changes come from this component itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -147,7 +155,9 @@ export function SessionView(props: {
           if (m.ref === sideRef.current) props.onOpenSide({ liveKey: m.session.key, sessionId: m.session.sessionId, cwd: m.session.cwd });
           break;
         case "log":
-          if (m.key === keyRef.current) setLiveLog(m.log);
+          if (m.key !== keyRef.current) break;
+          setLiveLog(m.log);
+          loadPrior();
           break;
         case "sdk": {
           if (m.key !== keyRef.current) break;
@@ -211,7 +221,8 @@ export function SessionView(props: {
       }
     }
     setLiveLog((log) => [...log, { type: "user", uuid: `local-${Date.now()}`, message: { role: "user", content } }]);
-    if (current) return socket.send({ t: "send", key: current.key, content });
+    // sessionId and cwd let the server resume the session if the key went stale.
+    if (current) return socket.send({ t: "send", key: current.key, sessionId: view.sessionId, cwd: view.cwd, content });
     const ref = crypto.randomUUID();
     pendingRef.current = ref;
     const fork = !view.sessionId && !!view.forkOf;
@@ -233,15 +244,18 @@ export function SessionView(props: {
     if (!current) return;
     if ("model" in patch) socket.send({ t: "setModel", key: current.key, model: patch.model });
     if (patch.permissionMode) socket.send({ t: "setMode", key: current.key, mode: patch.permissionMode });
-    if (patch.effort) socket.send({ t: "setEffort", key: current.key, effort: patch.effort });
+    if ("effort" in patch) socket.send({ t: "setEffort", key: current.key, effort: patch.effort });
   };
 
   const reply = (id: string, r: Reply) => current && socket.send({ t: "permission", key: current.key, id, reply: r });
 
-  const openPane = (k: PaneKind) => {
-    if (k === "sidechat" && !sideChat) setSideChat({ id: crypto.randomUUID(), cwd: view.cwd, forkOf: view.sessionId });
-    setPane(pane === k ? null : k);
-  };
+  const openPane = (k: PaneKind) => setPane(pane === k ? null : k);
+
+  // The side chat forks this session, so it's created only once the session
+  // has an id; opened earlier, the pane waits for the first message.
+  useEffect(() => {
+    if (pane === "sidechat" && view.sessionId && !sideChat) setSideChat({ id: crypto.randomUUID(), cwd: view.cwd, forkOf: view.sessionId });
+  }, [pane, view.sessionId, sideChat, view.cwd]);
 
   // Dragging the divider resizes the pane; the chat keeps at least 360px.
   const startDrag = (e: ReactMouseEvent<HTMLDivElement>) => {

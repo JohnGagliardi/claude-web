@@ -558,9 +558,14 @@ wss.on("connection", (ws) => {
           if (m.content || m.text) session.send(m.content ?? m.text);
           break;
         }
-        case "send":
-          s?.send(m.content ?? m.text);
+        case "send": {
+          // A stale key (server restarted, or the process was idle-closed while
+          // the message was in flight) resumes the session rather than dropping it.
+          const target = s ?? findLive(m.sessionId) ?? (m.sessionId && m.cwd ? startSession({ cwd: m.cwd, resume: m.sessionId }) : undefined);
+          if (!target) throw new Error("That session isn't running anymore, so the message wasn't sent. Send it again.");
+          target.send(m.content ?? m.text);
           break;
+        }
         case "permission":
           s?.answerPermission(m.id, m.reply);
           break;

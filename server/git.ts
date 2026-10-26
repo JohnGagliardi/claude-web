@@ -123,14 +123,20 @@ function splitPatch(patch: string): FileDiff[] {
   return files;
 }
 
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 // Working-tree changes against HEAD, untracked files included (shown as additions).
 export async function workingDiff(cwd: string, against: "HEAD" | "base" = "HEAD"): Promise<{ ref: string; files: FileDiff[] }> {
-  let ref = "HEAD";
-  if (against === "base") {
+  // A repo with no commits yet has no HEAD; diff against the empty tree instead.
+  const hasHead = await git(cwd, "rev-parse", "--verify", "--quiet", "HEAD").then(() => true, () => false);
+  let ref = hasHead ? "HEAD" : EMPTY_TREE;
+  if (against === "base" && hasHead) {
     const base = await baseBranch(cwd);
     if (base) ref = (await git(cwd, "merge-base", base, "HEAD")).trim();
   }
-  const tracked = await git(cwd, "-c", "core.quotepath=off", "diff", ref, "--no-color", "--find-renames");
+  // --relative: paths relative to (and limited to) the session folder, like
+  // ls-files below and the file viewer, even when that folder is a repo subfolder.
+  const tracked = await git(cwd, "-c", "core.quotepath=off", "diff", ref, "--relative", "--no-color", "--find-renames");
   const untracked = (await git(cwd, "ls-files", "--others", "--exclude-standard", "-z")).split("\0").filter(Boolean);
   const files = splitPatch(tracked);
   for (const f of untracked.slice(0, 200)) {

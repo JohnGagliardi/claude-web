@@ -248,7 +248,7 @@ export function App() {
       {!railHidden && (
       <Sidebar
         sessions={boot.sessions.filter((s) => !s.sideChat)}
-        live={boot.live}
+        live={boot.live.filter((l) => !l.sideChat)}
         selected={panes}
         onNew={() => {
           setPanel(null);

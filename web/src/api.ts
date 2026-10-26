@@ -38,6 +38,7 @@ export type LiveSummary = {
   effort?: Effort;
   pending: PendingPermission[];
   error?: string;
+  sideChat?: boolean;
 };
 
 export type Bootstrap = {

@@ -436,6 +436,7 @@ pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: var
 /* Tool screenshots, session info pane */
 .tool-images { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px 14px; }
 .tool-images img { max-width: min(100%, 420px); max-height: 300px; border-radius: 10px; border: 1px solid var(--border); display: block; }
+.tool-images .img-link { padding: 0; border: 0; background: none; cursor: zoom-in; }
 /* Session detail cards in the right column */
 .info-col { width: 300px; flex: none; overflow-y: auto; padding: 12px 14px 18px 2px; }
 .info-pane { display: flex; flex-direction: column; gap: 10px; }

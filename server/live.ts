@@ -60,6 +60,8 @@ export type LiveSummary = {
   effort?: EffortLevel;
   pending: PendingPermission[];
   error?: string;
+  // A side chat: a fork that stays out of the sidebar.
+  sideChat?: boolean;
 };
 
 export type LiveEvent =
@@ -138,6 +140,7 @@ export class LiveSession {
       effort: this.effort,
       pending: [...this.pending.values()].map(({ resolve: _r, ...p }) => p),
       error: this.error,
+      sideChat: this.opts.fork || undefined,
     };
   }
 
@@ -255,8 +258,9 @@ export class LiveSession {
     this.changed();
   }
 
-  async setEffort(effort: EffortLevel) {
-    await this.q.applyFlagSettings({ effortLevel: effort });
+  // No effort goes back to the model's default.
+  async setEffort(effort?: EffortLevel) {
+    await this.q.applyFlagSettings({ effortLevel: effort ?? null });
     this.effort = effort;
     this.changed();
   }

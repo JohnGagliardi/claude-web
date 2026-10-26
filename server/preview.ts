@@ -80,6 +80,14 @@ export class Previews {
       };
       proc.stdout?.on("data", log);
       proc.stderr?.on("data", log);
+      // A spawn failure (say, a launch.json cwd that doesn't exist) must not
+      // become an unhandled 'error' event, which would take the server down.
+      proc.on("error", (e) => {
+        log(Buffer.from(`Failed to start: ${e.message}`));
+        p.status = "exited";
+        p.exitCode = null;
+        this.changed();
+      });
       proc.on("exit", (code) => {
         p.status = "exited";
         p.exitCode = code;

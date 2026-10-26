@@ -124,6 +124,13 @@ function AgentCard({ item }: { item: Extract<Item, { kind: "tool" }> }) {
   );
 }
 
+// Browsers refuse to open data: URLs in a new tab, so hand them a blob: URL.
+async function openImage(dataUrl: string) {
+  const url = URL.createObjectURL(await (await fetch(dataUrl)).blob());
+  window.open(url, "_blank", "noopener");
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 type ToolItem = Extract<Item, { kind: "tool" }>;
 const toolStatus = (t: ToolItem) => (!t.result ? "running" : t.result.isError ? "error" : "ok");
 
@@ -141,9 +148,9 @@ function ToolCard({ item }: { item: ToolItem }) {
       {!!item.result?.images.length && (
         <div className="tool-images">
           {item.result.images.map((src, i) => (
-            <a key={i} href={src} target="_blank" rel="noreferrer">
+            <button key={i} className="img-link" onClick={() => void openImage(src)} title="Open full size">
               <img src={src} alt="" />
-            </a>
+            </button>
           ))}
         </div>
       )}
