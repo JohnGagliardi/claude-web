@@ -65,7 +65,14 @@ export class Previews {
     if (cfg.runtimeExecutable) {
       // A shell resolves npm.cmd and friends on Windows.
       const cmd = [cfg.runtimeExecutable, ...(cfg.runtimeArgs ?? [])].map(quote).join(" ");
-      const proc = spawn(cmd, { cwd: path.resolve(cwd, cfg.cwd ?? "."), shell: true, windowsHide: true, env: { ...process.env, PORT: String(cfg.port ?? "") } });
+      // Elsewhere it gets its own process group so stop() can end its children too.
+      const proc = spawn(cmd, {
+        cwd: path.resolve(cwd, cfg.cwd ?? "."),
+        shell: true,
+        windowsHide: true,
+        detached: process.platform !== "win32",
+        env: { ...process.env, PORT: String(cfg.port ?? "") },
+      });
       p.proc = proc;
       const log = (d: Buffer) => {
         p.logs.push(...d.toString().split(/\r?\n/).filter(Boolean));
@@ -108,7 +115,13 @@ export class Previews {
     if (pid && p.status !== "exited") {
       // The shell wrapper's children (node, vite…) must go too.
       if (process.platform === "win32") execFile("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true }, () => {});
-      else p.proc!.kill("SIGTERM");
+      else {
+        try {
+          process.kill(-pid, "SIGTERM");
+        } catch {
+          p.proc!.kill("SIGTERM");
+        }
+      }
     }
     this.servers.delete(id);
     this.changed();

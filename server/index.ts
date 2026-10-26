@@ -347,8 +347,15 @@ api.post(
   }),
 );
 // The tail of a background task's output: from the live session when there is
-// one, else from its saved output file under Claude Code's temp folder.
-const TASK_OUTPUT_ROOT = path.join(os.tmpdir(), "claude");
+// one, else from its saved output file under Claude Code's temp folder: a
+// "claude…" folder in the system temp dir, or /tmp/claude-<uid> on Mac and Linux.
+const TEMP_ROOTS = [...new Set([os.tmpdir(), "/tmp", "/private/tmp"].map((d) => path.resolve(d)))];
+const isTaskOutputFile = (full: string) =>
+  full.endsWith(".output") &&
+  TEMP_ROOTS.some((root) => {
+    const rel = path.relative(root, full);
+    return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel) && rel.split(path.sep)[0].startsWith("claude");
+  });
 api.post(
   "/task-output",
   wrap(async (req, res) => {
@@ -362,7 +369,7 @@ api.post(
       }
     }
     const full = file ? path.resolve(file) : "";
-    if (!full.startsWith(TASK_OUTPUT_ROOT + path.sep) || !full.endsWith(".output")) {
+    if (!isTaskOutputFile(full)) {
       return void res.status(404).json({ error: "No output for this task." });
     }
     const MAX = 8192;
