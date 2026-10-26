@@ -76,6 +76,7 @@ export function SessionView(props: {
   const [prior, setPrior] = useState<RawMsg[]>([]);
   const [liveLog, setLiveLog] = useState<RawMsg[]>([]);
   const [partial, setPartial] = useState("");
+  const [tokens, setTokens] = useState(0);
   const [catalog, setCatalog] = useState<Catalog>(emptyCatalog);
   const [draft, setDraft] = useState<ComposerSettings>({
     model: boot.settings.defaultModel,
@@ -154,8 +155,11 @@ export function SessionView(props: {
           if (msg.type === "stream_event") {
             if (msg.parent_tool_use_id) break;
             const ev = msg.event;
-            if (ev?.type === "message_start") setPartial("");
-            else if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") setPartial((p) => p + ev.delta.text);
+            if (ev?.type === "message_start") {
+              setPartial("");
+              setTokens(0);
+            } else if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") setPartial((p) => p + ev.delta.text);
+            else if (ev?.type === "message_delta" && typeof ev.usage?.output_tokens === "number") setTokens(ev.usage.output_tokens);
             break;
           }
           if (msg.type === "assistant" && !msg.parent_tool_use_id) setPartial("");
@@ -270,7 +274,7 @@ export function SessionView(props: {
   const chat = (
     <div className="chat">
       <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
-        <Transcript items={items} partial={partial} running={running} />
+        <Transcript items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} />
       </ReplyContext.Provider>
       <div className="dock">
         {current?.error && <div className="banner err">{current.error}</div>}

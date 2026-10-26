@@ -1,7 +1,7 @@
 {
-  "name": "claude-web",
+  "name": "clyde",
   "version": "1.0.0",
-  "description": "Browser front end for Claude Code, driven by the Claude Agent SDK",
+  "description": "Clyde: a browser front end for Claude Code, driven by the Claude Agent SDK",
   "scripts": {
     "dev": "concurrently -k -n server,web \"tsx watch server/index.ts\" \"vite\"",
     "build": "vite build",

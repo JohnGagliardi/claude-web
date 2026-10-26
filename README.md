@@ -1,4 +1,4 @@
-# claude-web
+# Clyde
 
 A browser front end for Claude Code that mirrors the Claude desktop app's Code tab,
 with nothing to install beyond Node. The Claude Agent SDK runs Claude Code

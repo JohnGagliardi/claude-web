@@ -84,10 +84,18 @@ export function App() {
     setBoot((b) => (b ? { ...b, ...s } : b));
   }, []);
 
+  // Open the most recently active session on the very first load only — not
+  // on every reconnect, which would yank the user back to it mid-work.
+  const autoOpenedRef = useRef(false);
   const loadBoot = useCallback(async () => {
     const b = await api<Bootstrap>("/bootstrap");
     setBoot(b);
     setNewCwd((c) => c || b.projects[0] || b.home);
+    if (!autoOpenedRef.current) {
+      autoOpenedRef.current = true;
+      const recent = b.sessions.filter((s) => !s.sideChat && !s.archived).sort((a, c) => c.lastModified - a.lastModified)[0];
+      if (recent) setPanes((ps) => (ps.length ? ps : [{ id: newId(), sessionId: recent.sessionId, cwd: recent.cwd ?? b.home }]));
+    }
   }, []);
 
   useEffect(() => {
@@ -172,11 +180,11 @@ export function App() {
     open({ sessionId, liveKey, cwd: s?.cwd ?? findLive(boot?.live ?? [], { sessionId, liveKey })?.cwd ?? boot?.home ?? "" });
   });
 
-  // "(2) Claude Web" when sessions need you or have unread results.
+  // "(2) Clyde" when sessions need you or have unread results.
   useEffect(() => {
     if (!boot) return;
     const waiting = boot.live.filter((l) => l.pending.length).length + boot.sessions.filter((s) => s.unread && !s.archived).length;
-    document.title = waiting ? `(${waiting}) Claude Web` : "Claude Web";
+    document.title = waiting ? `(${waiting}) Clyde` : "Clyde";
   }, [boot]);
 
   const reauth = async () => {
@@ -232,7 +240,7 @@ export function App() {
           ⚙ Settings
         </button>
         <button className="link" onClick={reauth} title={boot.reauth.configured ? "Run this device's reauth command" : "Not set up on this device"}>
-          ⟳ {boot.reauth.label}
+          <span className="reauth-icon">⟳</span> {boot.reauth.label}
         </button>
         {!connected && <span className="chip warn">Reconnecting…</span>}
       </header>
@@ -303,7 +311,7 @@ export function App() {
           ))
         ) : (
           <div className="empty">
-            <h1>Claude Web</h1>
+            <h1>Clyde</h1>
             <p className="muted">Pick a session on the left, or start a new one in {newCwd || boot.home}.</p>
             <p className="muted small">Ctrl+click a session (or ⧉) to open it side by side.</p>
           </div>

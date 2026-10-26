@@ -85,6 +85,7 @@ pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: var
   padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 12.5px;
 }
 .app-topbar .link.on { color: var(--accent); }
+.reauth-icon { color: #f5a623; font-weight: 700; }
 .app-body { flex: 1; min-height: 0; display: flex; }
 
 /* Sidebar */
@@ -154,6 +155,9 @@ pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: var
   align-self: flex-end; max-width: 80%; background: var(--raised);
   border-radius: 18px; padding: 9px 15px; white-space: pre-wrap; margin: 6px 0;
 }
+.user-bullets { margin: 2px 0; padding: 0 0 0 1.3em; list-style: disc outside; }
+.user-bullets li { margin: 0; }
+.user-bullets li::marker { font-size: 1.3em; line-height: 1; }
 .command { color: var(--muted); font-size: 12.5px; padding-left: 2px; }
 .result { font-size: 12px; color: var(--muted); }
 .result.err, .err { color: var(--err); }
@@ -238,7 +242,15 @@ pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: var
   padding: 10px 10px 8px 14px; box-shadow: var(--shadow);
 }
 .composer:focus-within { border-color: var(--border-strong); }
-.composer textarea { width: 100%; border: none; resize: none; outline: none; background: transparent; padding: 4px 0; font-size: 14.5px; }
+.composer-input {
+  width: 100%; min-height: 2.6em; max-height: 280px; overflow-y: auto; outline: none; background: transparent;
+  padding: 4px 0; font-size: 14.5px; white-space: pre-wrap; word-wrap: break-word; font-family: inherit;
+}
+.composer-input:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+.bullet-mark {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--text-2);
+  vertical-align: middle; margin-top: -2px; user-select: none;
+}
 .composer-bar { display: flex; gap: 2px; align-items: center; flex-wrap: wrap; margin-left: -6px; }
 .composer-bar select {
   font-size: 12.5px; padding: 3px 6px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 8px;

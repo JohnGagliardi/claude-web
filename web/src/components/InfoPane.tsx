@@ -34,7 +34,7 @@ const KIND_ORDER: Record<Category["kind"], number> = { used: 0, buffer: 1, free:
 const INTERNAL_SERVERS = new Set(["claude-web"]);
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <section className="card">
       <button className="card-head" onClick={() => setOpen(!open)}>

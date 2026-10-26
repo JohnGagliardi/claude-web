@@ -200,6 +200,50 @@ function Thinking({ text, durationMs }: { text: string; durationMs?: number }) {
   );
 }
 
+// herdr's own CLI cycles through playful verbs instead of a flat "Working…".
+const WORK_VERBS = [
+  "Percolating", "Pondering", "Noodling", "Simmering", "Marinating", "Brewing", "Cogitating",
+  "Ruminating", "Mulling", "Puzzling", "Synthesizing", "Deliberating", "Conjuring", "Wrangling",
+  "Unfurling", "Baking", "Churning", "Spelunking", "Vibing", "Contemplating",
+];
+
+function formatElapsed(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s}s`;
+}
+
+function formatTokens(n: number) {
+  return n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`;
+}
+
+function WorkingIndicator({ running, tokens }: { running: boolean; tokens: number }) {
+  const verbRef = useRef(WORK_VERBS[Math.floor(Math.random() * WORK_VERBS.length)]);
+  const startRef = useRef<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!running) {
+      startRef.current = null;
+      return;
+    }
+    verbRef.current = WORK_VERBS[Math.floor(Math.random() * WORK_VERBS.length)];
+    startRef.current = Date.now();
+    setElapsed(0);
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - startRef.current!) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+
+  if (!running) return null;
+  return (
+    <div className="working">
+      · {verbRef.current}… ({formatElapsed(elapsed)}
+      {tokens > 0 ? ` · ↓ ${formatTokens(tokens)} tokens` : ""})
+    </div>
+  );
+}
+
 function Compacted({ summary }: { summary?: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -218,6 +262,33 @@ function Compacted({ summary }: { summary?: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+// Renders "- " lines as a real <ul>/<li> list so the bullet marker's size and
+// color are plain CSS (see .user-bullets li::marker), not a font-dependent glyph.
+function UserText({ text }: { text: string }) {
+  const blocks: { bullet: boolean; lines: string[] }[] = [];
+  for (const line of text.split("\n")) {
+    const isBullet = /^\s*-\s+\S/.test(line);
+    const last = blocks[blocks.length - 1];
+    if (last && last.bullet === isBullet) last.lines.push(line);
+    else blocks.push({ bullet: isBullet, lines: [line] });
+  }
+  return (
+    <>
+      {blocks.map((b, i) =>
+        b.bullet ? (
+          <ul key={i} className="user-bullets">
+            {b.lines.map((l, j) => (
+              <li key={j}>{l.replace(/^\s*-\s+/, "")}</li>
+            ))}
+          </ul>
+        ) : (
+          <div key={i}>{b.lines.join("\n")}</div>
+        ),
+      )}
+    </>
   );
 }
 
@@ -241,14 +312,30 @@ function WrapUp({ item }: { item: Extract<Item, { kind: "wrap" }> }) {
   );
 }
 
-export function Transcript({ items, partial, running }: { items: Item[]; partial: string; running: boolean }) {
+export function Transcript({
+  items,
+  partial,
+  running,
+  tokens,
+  pendingCount,
+}: {
+  items: Item[];
+  partial: string;
+  running: boolean;
+  tokens: number;
+  // The permission/question card lives in the dock below this transcript, not
+  // inside it — it growing shrinks this scrollable area without otherwise
+  // triggering a re-scroll, which can leave a new prompt looking like it
+  // landed on top of whatever was last visible. Re-stick to the bottom then too.
+  pendingCount: number;
+}) {
   const end = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
   useEffect(() => {
     if (stick.current) end.current?.scrollIntoView({ block: "end" });
-  }, [items, partial]);
+  }, [items, partial, pendingCount]);
 
   return (
     <div
@@ -262,7 +349,7 @@ export function Transcript({ items, partial, running }: { items: Item[]; partial
       <div className="transcript-inner">
         <ItemList items={items} group />
         {partial && <Markdown text={partial} />}
-        {running && !partial && <div className="working">Working…</div>}
+        {!partial && <WorkingIndicator running={running} tokens={tokens} />}
         <div ref={end} />
       </div>
     </div>
@@ -327,7 +414,7 @@ function ItemList({ items, group }: { items: Item[]; group?: boolean }) {
                     </div>
                   )}
                   {it.documents > 0 && <div className="muted small">{it.documents} document(s) attached</div>}
-                  {it.text}
+                  <UserText text={it.text} />
                 </div>
               );
             case "command":

@@ -612,7 +612,7 @@ wss.on("connection", (ws) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`claude-web listening on http://localhost:${PORT}`);
+  console.log(`Clyde listening on http://localhost:${PORT}`);
 });
 
 const shutdown = async () => {
