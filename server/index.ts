@@ -305,6 +305,25 @@ api.post(
   }),
 );
 
+// Folders under a path, for the New session modal's folder picker: the
+// browser can't hand the server a real filesystem path on its own.
+api.get("/browse", (req, res) => {
+  try {
+    const requested = String(req.query.path ?? "").trim() || os.homedir();
+    const expanded = requested.startsWith("~") ? path.join(os.homedir(), requested.slice(1)) : requested;
+    const resolved = path.resolve(expanded);
+    const entries = fs
+      .readdirSync(resolved, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort((a, b) => a.localeCompare(b));
+    const parent = path.dirname(resolved);
+    res.json({ path: resolved, parent: parent !== resolved ? parent : null, entries });
+  } catch (e) {
+    res.status(400).json({ error: String((e as Error)?.message ?? e) });
+  }
+});
+
 api.get(
   "/catalog",
   wrap(async (req, res) => {

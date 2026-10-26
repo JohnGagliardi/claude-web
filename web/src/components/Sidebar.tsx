@@ -1,8 +1,7 @@
 import type React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LiveSummary, SessionInfo } from "../api";
 
-const base = (p?: string) => (p ? p.split(/[\\/]/).filter(Boolean).pop() ?? p : "Other");
 // Worktree sessions are listed under the repo they came from.
 const repoOf = (cwd?: string) => (cwd ?? "").split(/[\\/]\.claude[\\/]worktrees[\\/]/)[0];
 
@@ -19,15 +18,9 @@ export type SidebarItem = SessionInfo & { liveKey?: string; running?: boolean; n
 export function Sidebar(props: {
   sessions: SessionInfo[];
   live: LiveSummary[];
-  projects: string[];
   selected: { sessionId?: string; liveKey?: string }[];
   onSplit: (s: SidebarItem) => void;
   footer?: React.ReactNode;
-  newCwd: string;
-  onNewCwd: (cwd: string) => void;
-  useWorktree: boolean;
-  onUseWorktree: (v: boolean) => void;
-  onAddProject: () => void;
   onNew: () => void;
   onSelect: (s: SidebarItem) => void;
   onMeta: (s: SidebarItem, patch: Record<string, unknown>) => void;
@@ -35,7 +28,19 @@ export function Sidebar(props: {
 }) {
   const [q, setQ] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [menu, setMenu] = useState<{ x: number; y: number; s: SidebarItem } | null>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
 
   const items = useMemo(() => {
     const bySession = new Map(props.live.filter((l) => l.sessionId).map((l) => [l.sessionId!, l]));
@@ -65,12 +70,9 @@ export function Sidebar(props: {
     );
   }, [props.sessions, props.live, q, showArchived]);
 
-  const pinned = items.filter((s) => s.pinned);
-  const groups = new Map<string, SidebarItem[]>();
-  for (const s of items.filter((s) => !s.pinned)) {
-    const k = repoOf(s.cwd);
-    groups.set(k, [...(groups.get(k) ?? []), s]);
-  }
+  const byRecency = (a: SidebarItem, b: SidebarItem) => b.lastModified - a.lastModified;
+  const pinned = items.filter((s) => s.pinned).sort(byRecency);
+  const rest = items.filter((s) => !s.pinned).sort(byRecency);
   // Side sessions sit right under the session that started them.
   const nest = (list: SidebarItem[]) => {
     const ids = new Set(list.map((s) => s.sessionId));
@@ -89,11 +91,17 @@ export function Sidebar(props: {
   const row = (s: SidebarItem) => (
     <div
       key={s.liveKey ?? s.sessionId}
-      className={`session ${isSel(s) ? "sel" : ""}`}
+      className={`session ${isSel(s) ? "sel" : ""} ${s.pinned ? "pinned" : ""}`}
       style={s.depth ? { paddingLeft: 8 + s.depth * 14 } : undefined}
       onClick={(e) => (e.ctrlKey || e.metaKey ? props.onSplit(s) : props.onSelect(s))}
+      onContextMenu={(e) => {
+        if (!s.sessionId && !s.liveKey) return;
+        e.preventDefault();
+        const w = 180, h = 220;
+        setMenu({ x: Math.min(e.clientX, window.innerWidth - w - 8), y: Math.min(e.clientY, window.innerHeight - h - 8), s });
+      }}
       title={`${s.cwd ?? ""}
-Ctrl+click to open in split view`}
+Ctrl+click to open in split view · Right-click for options`}
     >
       {!!s.depth && <span className="wt">⑃</span>}
       <span className={`status ${s.needsYou ? "needs" : s.running ? "running" : s.unread ? "unread" : ""}`} />
@@ -142,18 +150,6 @@ Ctrl+click to open in split view`}
           <span className="plus-icon">+</span> New session
         </button>
       </div>
-      <div className="new-row">
-        <select value={props.newCwd} onChange={(e) => (e.target.value === "__add" ? props.onAddProject() : props.onNewCwd(e.target.value))}>
-          {props.projects.map((p) => (
-            <option key={p} value={p}>{base(p)} — {p}</option>
-          ))}
-          <option value="__add">Add folder…</option>
-        </select>
-      </div>
-      <label className="option small" title="Start new sessions on their own branch in <repo>/.claude/worktrees">
-        <input type="checkbox" checked={props.useWorktree} onChange={(e) => props.onUseWorktree(e.target.checked)} />
-        New session in its own worktree
-      </label>
       <input className="search" placeholder="Search sessions" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="session-list">
         {pinned.length > 0 && (
@@ -162,14 +158,10 @@ Ctrl+click to open in split view`}
             {nest(pinned).map(row)}
           </div>
         )}
-        {[...groups.entries()].map(([cwd, list]) => (
-          <div key={cwd} className="group">
-            <button className="group-head" onClick={() => setCollapsed({ ...collapsed, [cwd]: !collapsed[cwd] })} title={cwd}>
-              {collapsed[cwd] ? "▸" : "▾"} {base(cwd)}
-            </button>
-            {!collapsed[cwd] && nest(list).map(row)}
-          </div>
-        ))}
+        <div className="group">
+          <div className="group-head">{showArchived ? "Archived" : "Sessions"}</div>
+          {nest(rest).map(row)}
+        </div>
         {items.length === 0 && <div className="muted pad">No sessions</div>}
       </div>
       <div className="sidebar-foot">
@@ -178,6 +170,42 @@ Ctrl+click to open in split view`}
         </button>
         {props.footer}
       </div>
+      {menu && (
+        <div className="ctx-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => (props.onSelect(menu.s), setMenu(null))}>Open</button>
+          <button onClick={() => (props.onSplit(menu.s), setMenu(null))}>Open in split view</button>
+          {menu.s.sessionId && (
+            <>
+              <button onClick={() => (props.onMeta(menu.s, { pinned: !menu.s.pinned }), setMenu(null))}>
+                {menu.s.pinned ? "Unpin" : "Pin"}
+              </button>
+              <button
+                onClick={() => {
+                  const t = prompt("Rename session", menu.s.customTitle || menu.s.summary);
+                  setMenu(null);
+                  if (t?.trim()) props.onMeta(menu.s, { title: t.trim(), dir: menu.s.cwd });
+                }}
+              >
+                Rename
+              </button>
+              <button onClick={() => (props.onMeta(menu.s, { archived: !menu.s.archived }), setMenu(null))}>
+                {menu.s.archived ? "Unarchive" : "Archive"}
+              </button>
+            </>
+          )}
+          {menu.s.archived && (
+            <button
+              className="danger"
+              onClick={() => {
+                props.onDelete(menu.s);
+                setMenu(null);
+              }}
+            >
+              Delete permanently
+            </button>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

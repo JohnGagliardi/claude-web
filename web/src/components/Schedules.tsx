@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, type PermissionMode, type Schedule, type SessionInfo } from "../api";
+import { BackIcon } from "./Icons";
 
 const PRESETS: [string, string][] = [
   ["Every weekday at 9:00", "0 9 * * 1-5"],
@@ -106,11 +107,15 @@ export function Schedules(props: {
   defaultCwd: string;
   onOpenSession: (sessionId: string, cwd: string) => void;
   onToast: (t: string) => void;
+  onBack: () => void;
 }) {
   const [editing, setEditing] = useState<Draft | null>(null);
   return (
     <div className="schedules">
       <div className="sched-head">
+        <button className="icon-btn" onClick={props.onBack} title="Back" aria-label="Back">
+          <BackIcon />
+        </button>
         <h2>Scheduled tasks</h2>
         <span className="spacer" />
         <button className="primary" onClick={() => setEditing(blank(props.defaultCwd))}>+ New schedule</button>

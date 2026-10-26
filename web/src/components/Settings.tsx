@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, q, type AppSettings, type Bootstrap, type Catalog, type Effort, type PermissionMode } from "../api";
+import { BackIcon } from "./Icons";
 
 const MODES: [PermissionMode, string][] = [
   ["default", "Ask permissions"],
@@ -10,7 +11,17 @@ const MODES: [PermissionMode, string][] = [
 ];
 const EFFORTS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
-export function Settings({ boot, notifications, onToast }: { boot: Bootstrap; notifications: { enabled: boolean; toggle: () => void }; onToast: (t: string) => void }) {
+export function Settings({
+  boot,
+  notifications,
+  onToast,
+  onBack,
+}: {
+  boot: Bootstrap;
+  notifications: { enabled: boolean; toggle: () => void };
+  onToast: (t: string) => void;
+  onBack: () => void;
+}) {
   const s = boot.settings;
   const [models, setModels] = useState<Catalog["models"]>([]);
   const [auth, setAuth] = useState<string | null>(null);
@@ -23,7 +34,12 @@ export function Settings({ boot, notifications, onToast }: { boot: Bootstrap; no
 
   return (
     <div className="settings">
-      <h2>Settings</h2>
+      <div className="panel-head">
+        <button className="icon-btn" onClick={onBack} title="Back" aria-label="Back">
+          <BackIcon />
+        </button>
+        <h2>Settings</h2>
+      </div>
 
       <section>
         <h3>New sessions</h3>

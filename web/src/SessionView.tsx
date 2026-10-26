@@ -11,7 +11,16 @@ import { OpenFileContext, ReplyContext, SessionContext } from "./fileLinks";
 import { stored, store } from "./storage";
 
 // forkOf: a side chat that branches off that session on its first message.
-export type View = { id: string; sessionId?: string; liveKey?: string; cwd: string; forkOf?: string };
+// worktree/initialTitle: chosen in the New session modal, applied once on creation.
+export type View = {
+  id: string;
+  sessionId?: string;
+  liveKey?: string;
+  cwd: string;
+  forkOf?: string;
+  worktree?: boolean;
+  initialTitle?: string;
+};
 
 const emptyCatalog: Catalog = { models: [], commands: [] };
 const catalogs = new Map<string, Promise<Catalog>>();
@@ -94,6 +103,13 @@ export function SessionView(props: {
   viewRef.current = view;
   keyRef.current = current?.key ?? view.liveKey;
 
+  // Applies the name chosen in the New session modal the first time the
+  // session gets a real id (the modal only knows a cwd, not an id yet).
+  const titleOnFirstSession = (sessionId: string | undefined, cwd: string) => {
+    if (sessionId && !viewRef.current.sessionId && viewRef.current.initialTitle)
+      void api(`/sessions/${sessionId}/meta`, { json: { title: viewRef.current.initialTitle, dir: cwd } }).catch(() => {});
+  };
+
   useEffect(() => store(`pane${props.slot}`, pane ?? ""), [pane, props.slot]);
 
   // Initial load: the persisted transcript, then the live process's log if any.
@@ -116,12 +132,15 @@ export function SessionView(props: {
         case "started":
           if (m.ref !== pendingRef.current) break;
           keyRef.current = m.session.key;
+          titleOnFirstSession(m.session.sessionId, m.session.cwd);
           // cwd can change here: a worktree session runs in its new folder.
           onChange({ ...viewRef.current, cwd: m.session.cwd, liveKey: m.session.key, sessionId: viewRef.current.sessionId ?? m.session.sessionId });
           break;
         case "live":
-          if (m.session.key === keyRef.current && m.session.sessionId && !viewRef.current.sessionId)
+          if (m.session.key === keyRef.current && m.session.sessionId && !viewRef.current.sessionId) {
+            titleOnFirstSession(m.session.sessionId, viewRef.current.cwd);
             onChange({ ...viewRef.current, liveKey: m.session.key, sessionId: m.session.sessionId });
+          }
           break;
         case "side-started":
           if (m.ref === sideRef.current) props.onOpenSide({ liveKey: m.session.key, sessionId: m.session.sessionId, cwd: m.session.cwd });
@@ -198,7 +217,7 @@ export function SessionView(props: {
       cwd: view.cwd,
       resume: view.sessionId ?? view.forkOf,
       sideChat: fork,
-      worktree: !view.sessionId && !fork && props.useWorktree,
+      worktree: !view.sessionId && !fork && (view.worktree ?? props.useWorktree),
       text,
       content,
       ...draft,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, socket, type Bootstrap, type LiveSummary } from "./api";
 import { Sidebar, type SidebarItem } from "./components/Sidebar";
+import { NewSessionModal } from "./components/NewSessionModal";
 import { Schedules } from "./components/Schedules";
 import { Settings } from "./components/Settings";
 import { SessionView, clearCatalogs, findLive, type View } from "./SessionView";
@@ -68,6 +69,7 @@ export function App() {
   const [focus, setFocus] = useState(0);
   const [panel, setPanel] = useState<"schedules" | "settings" | null>(null);
   const [newCwd, setNewCwd] = useState("");
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [connected, setConnected] = useState(true);
   const [railHidden, setRailHidden] = useState(stored("railHidden") === "1");
@@ -192,46 +194,57 @@ export function App() {
     }
   };
 
-  const addProject = async () => {
-    const p = prompt("Folder path", boot?.home);
-    if (!p) return;
-    try {
-      const r = await api<{ path: string }>("/projects", { json: { path: p } });
-      setNewCwd(r.path);
-      await refreshSessions();
-    } catch (e) {
-      setToast((e as Error).message);
-    }
-  };
+  // Folders picked in the New session modal aren't necessarily known yet
+  // (no session has run there), so register them for Schedules' folder list.
+  const registerProject = (dir: string) =>
+    void api("/projects", { json: { path: dir } })
+      .then(() => refreshSessions())
+      .catch(() => {});
 
   const updatePane = useCallback((v: View) => setPanes((ps) => ps.map((p) => (p.id === v.id ? v : p))), []);
   const openSide = useCallback((v: Omit<View, "id">) => open(v, true), [open]);
 
   const useWorktree = !!boot?.settings.newSessionWorktree;
-  const setUseWorktree = (v: boolean) => void api("/settings", { json: { newSessionWorktree: v } });
+
+  const startNewSession = (opts: { cwd: string; name: string; worktree: boolean }) => {
+    setNewCwd(opts.cwd);
+    setNewSessionOpen(false);
+    if (!projects.includes(opts.cwd)) registerProject(opts.cwd);
+    setPanes((ps) => {
+      const v: View = { id: newId(), cwd: opts.cwd, worktree: opts.worktree, initialTitle: opts.name || undefined };
+      return ps.length ? ps.map((p, i) => (i === Math.min(focus, ps.length - 1) ? v : p)) : [v];
+    });
+  };
 
   if (!boot) return <div className="boot">{connected ? "Loading…" : "Can't reach the claude-web server."}</div>;
   const projects = boot.projects.length ? boot.projects : [boot.home];
 
   return (
     <div className="app">
+      <header className="app-topbar">
+        <button className={`link ${panel === "schedules" ? "on" : ""}`} onClick={() => setPanel(panel === "schedules" ? null : "schedules")}>
+          ⏱ Scheduled{boot.schedules.length ? ` (${boot.schedules.length})` : ""}
+        </button>
+        <button className="link" onClick={() => void notifications.toggle()} title="Desktop notifications when a session finishes or needs approval">
+          {notifications.enabled ? "🔔 On" : "🔕 Off"}
+        </button>
+        <button className={`link ${panel === "settings" ? "on" : ""}`} onClick={() => setPanel(panel === "settings" ? null : "settings")}>
+          ⚙ Settings
+        </button>
+        <button className="link" onClick={reauth} title={boot.reauth.configured ? "Run this device's reauth command" : "Not set up on this device"}>
+          ⟳ {boot.reauth.label}
+        </button>
+        {!connected && <span className="chip warn">Reconnecting…</span>}
+      </header>
+      <div className="app-body">
       {!railHidden && (
       <Sidebar
         sessions={boot.sessions.filter((s) => !s.sideChat)}
         live={boot.live}
-        projects={projects}
         selected={panes}
-        newCwd={newCwd}
-        onNewCwd={setNewCwd}
-        useWorktree={useWorktree}
-        onUseWorktree={setUseWorktree}
-        onAddProject={addProject}
         onNew={() => {
           setPanel(null);
-          setPanes((ps) => {
-            const v = { id: newId(), cwd: newCwd || boot.home };
-            return ps.length ? ps.map((p, i) => (i === Math.min(focus, ps.length - 1) ? v : p)) : [v];
-          });
+          setNewSessionOpen(true);
         }}
         onSelect={(s) => open(fromItem(s))}
         onSplit={(s) => open(fromItem(s), true)}
@@ -240,28 +253,24 @@ export function App() {
           if (confirm(`Permanently delete "${s.customTitle || s.summary}"? This removes the transcript file.`))
             void api(`/sessions/${s.sessionId}?dir=${encodeURIComponent(s.cwd ?? "")}`, { method: "DELETE" }).catch((e) => setToast(e.message));
         }}
-        footer={
-          <>
-            <button className={`link ${panel === "schedules" ? "on" : ""}`} onClick={() => setPanel(panel === "schedules" ? null : "schedules")}>
-              ⏱ Scheduled{boot.schedules.length ? ` (${boot.schedules.length})` : ""}
-            </button>
-            <button className="link" onClick={() => void notifications.toggle()} title="Desktop notifications when a session finishes or needs approval">
-              {notifications.enabled ? "🔔 On" : "🔕 Off"}
-            </button>
-            <button className={`link ${panel === "settings" ? "on" : ""}`} onClick={() => setPanel(panel === "settings" ? null : "settings")}>
-              ⚙ Settings
-            </button>
-            <button className="link" onClick={reauth} title={boot.reauth.configured ? "Run this device's reauth command" : "Not set up on this device"}>
-              ⟳ {boot.reauth.label}
-            </button>
-            {!connected && <span className="chip warn">Reconnecting…</span>}
-          </>
-        }
       />
+      )}
+      {newSessionOpen && (
+        <NewSessionModal
+          defaultCwd={newCwd || boot.home}
+          defaultWorktree={useWorktree}
+          onCancel={() => setNewSessionOpen(false)}
+          onStart={startNewSession}
+        />
       )}
       <main className={`main ${panes.length > 1 && !panel ? "split" : ""}`}>
         {panel === "settings" ? (
-          <Settings boot={boot} notifications={{ enabled: notifications.enabled, toggle: () => void notifications.toggle() }} onToast={setToast} />
+          <Settings
+            boot={boot}
+            notifications={{ enabled: notifications.enabled, toggle: () => void notifications.toggle() }}
+            onToast={setToast}
+            onBack={() => setPanel(null)}
+          />
         ) : panel === "schedules" ? (
           <Schedules
             schedules={boot.schedules}
@@ -270,6 +279,7 @@ export function App() {
             defaultCwd={newCwd || boot.home}
             onOpenSession={(sessionId, cwd) => open({ sessionId, cwd })}
             onToast={setToast}
+            onBack={() => setPanel(null)}
           />
         ) : panes.length ? (
           panes.map((v, i) => (
@@ -299,6 +309,7 @@ export function App() {
           </div>
         )}
       </main>
+      </div>
       {toast && (
         <div className="toast" onClick={() => setToast(null)}>
           <pre>{toast}</pre>

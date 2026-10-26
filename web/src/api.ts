@@ -107,6 +107,8 @@ export type PrStatus = {
 export const q = (params: Record<string, string | undefined>) =>
   "?" + new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => e[1] !== undefined)).toString();
 
+export type BrowseResult = { path: string; parent: string | null; entries: string[] };
+
 export type ModelInfo ={ value: string; displayName: string; description: string; supportsEffort?: boolean };
 export type SlashCommand = { name: string; description: string; argumentHint: string };
 export type Catalog = { models: ModelInfo[]; commands: SlashCommand[] };
