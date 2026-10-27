@@ -18,6 +18,8 @@ export type SessionInfo = {
   parent?: string;
   scheduleId?: string;
   sideChat?: boolean;
+  // The mode it last ran in, so a closed session reopens the same way.
+  permissionMode?: PermissionMode;
 };
 
 export type PendingPermission = {

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 
 // App-only data lives here. Session transcripts themselves stay in Claude Code's
 // own store (~/.claude/projects), so the CLI and this app see the same sessions.
@@ -20,8 +21,9 @@ export type SessionMeta = {
   parent?: string;
   scheduleId?: string;
   sideChat?: boolean;
-  // Last Remote Control choice, restored when the session restarts.
+  // Last Remote Control choice and permission mode, restored when the session restarts.
   remote?: boolean;
+  permissionMode?: PermissionMode;
 };
 
 export type AppState = {

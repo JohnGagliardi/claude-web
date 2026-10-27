@@ -60,6 +60,9 @@ function onLiveEvent(ev: LiveEvent) {
     }
     flushReports(ev.key);
   }
+  // Remember each session's mode, whether the user or Claude (leaving plan mode) changed it.
+  if (ev.t === "live" && ev.session.sessionId && getState().sessions[ev.session.sessionId]?.permissionMode !== ev.session.permissionMode)
+    updateSessionMeta(ev.session.sessionId, { permissionMode: ev.session.permissionMode });
   if (ev.t === "closed") {
     live.delete(ev.key);
     sideLinks.delete(ev.key);
@@ -86,6 +89,8 @@ function startSession(opts: ConstructorParameters<typeof LiveSession>[0]): LiveS
         // the setting. Side chats stay out of the sidebar, so off the phone too.
         remoteControl: !opts.fork && ((opts.resume ? getState().sessions[opts.resume]?.remote : undefined) ?? !!getSettings().remoteControl),
         ...opts,
+        // A resumed session (or a side chat's copy) keeps the mode it last ran in.
+        permissionMode: opts.permissionMode ?? (opts.resume ? getState().sessions[opts.resume]?.permissionMode : undefined),
         extra: (key) => ({
           mcpServers: {
             [SERVER_NAME]: sessionTools({

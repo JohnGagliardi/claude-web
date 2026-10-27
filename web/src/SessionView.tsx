@@ -82,7 +82,7 @@ export function SessionView(props: {
   const [draft, setDraft] = useState<ComposerSettings>({
     model: boot.settings.defaultModel,
     effort: boot.settings.defaultEffort,
-    permissionMode: boot.settings.defaultPermissionMode,
+    permissionMode: boot.sessions.find((s) => s.sessionId === view.sessionId)?.permissionMode ?? boot.settings.defaultPermissionMode,
   });
   // A pane splits the main view; with none open, the detail cards take the right column.
   const [pane, setPane] = useState<PaneKind | null>(() => {
@@ -247,6 +247,13 @@ export function SessionView(props: {
       ...draft,
     });
   };
+
+  // Follow mode changes made while running (e.g. Claude leaving plan mode), so the
+  // composer still shows them once the process closes.
+  const liveMode = current?.permissionMode;
+  useEffect(() => {
+    if (liveMode) setDraft((d) => (d.permissionMode === liveMode ? d : { ...d, permissionMode: liveMode }));
+  }, [liveMode]);
 
   const changeSettings = (patch: Partial<ComposerSettings>) => {
     setDraft((d) => ({ ...d, ...patch }));
