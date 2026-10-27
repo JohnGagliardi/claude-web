@@ -225,7 +225,7 @@ function formatTokens(n: number) {
   return n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`;
 }
 
-function WorkingIndicator({ running, tokens }: { running: boolean; tokens: number }) {
+export function WorkingIndicator({ running, tokens }: { running: boolean; tokens: number }) {
   const verbRef = useRef(WORK_VERBS[Math.floor(Math.random() * WORK_VERBS.length)]);
   const startRef = useRef<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -251,7 +251,7 @@ function WorkingIndicator({ running, tokens }: { running: boolean; tokens: numbe
   );
 }
 
-function Compacted({ summary }: { summary?: string }) {
+export function Compacted({ summary }: { summary?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="divider-block">
@@ -274,7 +274,7 @@ function Compacted({ summary }: { summary?: string }) {
 
 // Renders "- " lines as a real <ul>/<li> list so the bullet marker's size and
 // color are plain CSS (see .user-bullets li::marker), not a font-dependent glyph.
-function UserText({ text }: { text: string }) {
+export function UserText({ text }: { text: string }) {
   const blocks: { bullet: boolean; lines: string[] }[] = [];
   for (const line of text.split("\n")) {
     const isBullet = /^\s*-\s+\S/.test(line);
@@ -299,7 +299,7 @@ function UserText({ text }: { text: string }) {
   );
 }
 
-function WrapUp({ item }: { item: Extract<Item, { kind: "wrap" }> }) {
+export function WrapUp({ item }: { item: Extract<Item, { kind: "wrap" }> }) {
   const { send, running } = useReply();
   const live = !item.stale && !!send && !running;
   return (

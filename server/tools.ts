@@ -36,6 +36,7 @@ export const READ_ONLY_TOOLS = [
   "browser_text",
   "browser_console",
   "list_side_sessions",
+  "update_plan",
 ].map((n) => `mcp__${SERVER_NAME}__${n}`);
 
 export function sessionTools(ctx: Ctx): McpSdkServerConfigWithInstance {
@@ -191,6 +192,22 @@ export function sessionTools(ctx: Ctx): McpSdkServerConfigWithInstance {
         "Send a follow-up message to one of your side sessions (by its key or session id).",
         { session: z.string(), text: z.string() },
         async ({ session, text: body }) => guard(async () => text(ctx.sides.send(session, body))),
+      ),
+      // The app draws the list from the calls in the transcript; nothing to store here.
+      tool(
+        "update_plan",
+        "Keep the task list the user sees under your messages. Use it for every request that edits files or runs more than one " +
+          "command. First call: items = the whole plan in order (short imperative steps), the step you're starting " +
+          '"in_progress", the rest "pending". As each step finishes, send {advance: true} alongside the call that starts the next ' +
+          "one; after the last step, advance once more. Out of order: {done: [2], start: 4} (1-based). If the plan changes, send " +
+          "items again. Send it in the same message as another tool call, never on its own.",
+        {
+          items: z.array(z.object({ content: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })).optional(),
+          advance: z.boolean().optional(),
+          done: z.array(z.number().int()).optional(),
+          start: z.number().int().optional(),
+        },
+        async () => text("Plan shown."),
       ),
     ],
   });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type LiveSummary, type RawMsg } from "../api";
 import type { Item } from "../transcript";
-import { AgentIcon, BranchIcon, CodeIcon, FolderIcon, GearIcon, LaptopIcon, StopIcon, TerminalIcon, UndoIcon } from "./Icons";
+import { AgentIcon, BranchIcon, CodeIcon, FolderIcon, GearIcon, LaptopIcon, PhoneIcon, StopIcon, TerminalIcon, UndoIcon } from "./Icons";
 
 // The detail cards beside the chat, after the desktop app: Environment,
 // Context, Connectors, Outputs and Background tasks.
@@ -153,6 +153,7 @@ export function InfoPane(props: {
             <span className="env-name mono">{props.branch}</span>
           </button>
         )}
+        <RemoteControl live={live} onToast={props.onToast} />
       </Card>
 
       <Card title="Context">
@@ -265,6 +266,40 @@ export function InfoPane(props: {
       <Card title="Background tasks">
         <BackgroundTasks live={live} log={log} onToast={props.onToast} />
       </Card>
+    </div>
+  );
+}
+
+const REMOTE_LABELS: Record<string, string> = { connecting: "Connecting…", ready: "Connecting…", connected: "On", failed: "Failed", policy_disabled: "Turned off by policy" };
+
+// The desktop app's Remote Control switch: the session also shows in
+// claude.ai/code and the Claude app, and either side can drive it.
+function RemoteControl({ live, onToast }: { live?: LiveSummary; onToast: (t: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const remote = live?.remote;
+  const on = !!remote && remote.state !== "failed" && remote.state !== "policy_disabled";
+  const toggle = () => {
+    if (!live || busy) return;
+    setBusy(true);
+    void api(`/live/${live.key}/remote`, { json: { enabled: !on } })
+      .catch((e) => onToast(e.message))
+      .finally(() => setBusy(false));
+  };
+  const status = !live ? "Session not running" : remote ? (REMOTE_LABELS[remote.state] ?? remote.state) : "Off";
+  return (
+    <div className="env-row" title={remote?.detail ?? "Show this session in claude.ai/code and the Claude app"}>
+      <PhoneIcon />
+      <span className="env-name">
+        Remote Control{" "}
+        {remote?.url && remote.state === "connected" ? (
+          <a className="muted" href={remote.url} target="_blank" rel="noreferrer">
+            · Open
+          </a>
+        ) : (
+          <span className={`muted ${remote?.state === "failed" ? "err" : ""}`}>· {status}</span>
+        )}
+      </span>
+      <button className={`switch ${on ? "on" : ""}`} role="switch" aria-checked={on} aria-label="Remote Control" disabled={!live || busy} onClick={toggle} />
     </div>
   );
 }

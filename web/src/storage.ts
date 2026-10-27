@@ -7,6 +7,12 @@ export const stored = (k: string) => {
   }
 };
 
+export const unstore = (k: string) => {
+  try {
+    localStorage.removeItem(k);
+  } catch {}
+};
+
 export const store = (k: string, v: string) => {
   try {
     localStorage.setItem(k, v);

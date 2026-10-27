@@ -105,6 +105,13 @@ export const LaptopIcon = () => (
   </Svg>
 );
 
+export const PhoneIcon = () => (
+  <Svg>
+    <rect x="7" y="2.5" width="10" height="19" rx="2" />
+    <path d="M11 18h2" />
+  </Svg>
+);
+
 export const GearIcon = () => (
   <Svg>
     <circle cx="12" cy="12" r="3" />

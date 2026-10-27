@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Effort, ModelInfo, PermissionMode, SlashCommand } from "../api";
+import { stored, store, unstore } from "../storage";
 
 const MODES: [PermissionMode, string][] = [
   ["default", "Ask permissions"],
@@ -126,6 +127,18 @@ function convertDashToBullet(root: HTMLElement): boolean {
   return true;
 }
 
+// The reverse of domToText, for restoring a saved draft.
+function textToDom(root: HTMLElement, text: string) {
+  root.innerHTML = "";
+  text.split("\n").forEach((line, i) => {
+    if (i) root.appendChild(document.createElement("br"));
+    if (line.startsWith("- ")) {
+      root.appendChild(makeBulletNode());
+      if (line.length > 2) root.appendChild(document.createTextNode(line.slice(2)));
+    } else if (line) root.appendChild(document.createTextNode(line));
+  });
+}
+
 // Index into root.childNodes right after the previous <br> (0 if none) — the
 // start of the line the caret is currently on.
 function lineStartIndex(root: HTMLElement, range: Range): number {
@@ -169,11 +182,16 @@ export function Composer(props: {
   placeholder?: string;
   settings: ComposerSettings;
   models: ModelInfo[];
+  // What the "Default" options resolve to, so they can say so.
+  defaultModel?: string;
+  defaultEffort?: Effort | null;
   commands: SlashCommand[];
   onSettings: (s: Partial<ComposerSettings>) => void;
   onSend: (text: string, attachments: Attachment[]) => void;
   onStop: () => void;
   onError: (message: string) => void;
+  // Unsent text is saved under this key, so it survives switching sessions.
+  draftKey?: string;
 }) {
   const [text, setText] = useState("");
   const [sel, setSel] = useState(0);
@@ -197,6 +215,19 @@ export function Composer(props: {
 
   useEffect(() => setSel(0), [slash?.[1]]);
 
+  useEffect(() => {
+    if (!ta.current) return;
+    const saved = (props.draftKey && stored(`draft:${props.draftKey}`)) || "";
+    textToDom(ta.current, saved);
+    setText(saved);
+  }, [props.draftKey]);
+
+  const saveDraft = (t: string) => {
+    if (!props.draftKey) return;
+    if (t) store(`draft:${props.draftKey}`, t);
+    else unstore(`draft:${props.draftKey}`);
+  };
+
   const addFiles = async (files: FileList | File[]) => {
     for (const f of Array.from(files)) {
       try {
@@ -208,13 +239,18 @@ export function Composer(props: {
     }
   };
 
-  const sync = () => setText(domToText(ta.current!));
+  const sync = () => {
+    const t = domToText(ta.current!);
+    setText(t);
+    saveDraft(t);
+  };
 
   const send = () => {
     if ((!text.trim() && !attachments.length) || props.disabled) return;
     props.onSend(text.trim(), attachments);
     if (ta.current) ta.current.innerHTML = "";
     setText("");
+    saveDraft("");
     setAttachments([]);
   };
 
@@ -223,6 +259,7 @@ export function Composer(props: {
     if (!el) return;
     el.textContent = `/${c.name} `;
     setText(el.textContent);
+    saveDraft(el.textContent);
     el.focus();
     const r = document.createRange();
     r.selectNodeContents(el);
@@ -370,13 +407,13 @@ export function Composer(props: {
           ))}
         </select>
         <select value={props.settings.model ?? ""} onChange={(e) => props.onSettings({ model: e.target.value || undefined })}>
-          <option value="">Default model</option>
+          <option value="">{props.defaultModel ? `Default (${props.defaultModel})` : "Default model"}</option>
           {props.models.map((m) => (
             <option key={m.value} value={m.value} title={m.description}>{m.displayName}</option>
           ))}
         </select>
         <select value={props.settings.effort ?? ""} onChange={(e) => props.onSettings({ effort: (e.target.value || undefined) as Effort })}>
-          <option value="">Default effort</option>
+          <option value="">{props.defaultEffort ? `Default effort (${props.defaultEffort})` : "Default effort"}</option>
           {EFFORTS.map((e) => (
             <option key={e} value={e}>{e} effort</option>
           ))}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, q, type AppSettings, type Bootstrap, type Catalog, type Effort, type PermissionMode } from "../api";
+import { api, defaultModelName, pickableModels, q, type AppSettings, type Bootstrap, type Catalog, type Effort, type PermissionMode } from "../api";
 import { BackIcon } from "./Icons";
 
 const MODES: [PermissionMode, string][] = [
@@ -23,11 +23,13 @@ export function Settings({
   onBack: () => void;
 }) {
   const s = boot.settings;
-  const [models, setModels] = useState<Catalog["models"]>([]);
+  const [catalog, setCatalog] = useState<Catalog>({ models: [], commands: [] });
+  const models = pickableModels(catalog.models);
+  const defaultModel = defaultModelName(catalog);
   const [auth, setAuth] = useState<string | null>(null);
 
   useEffect(() => {
-    void api<Catalog>(`/catalog${q({ cwd: boot.home })}`).then((c) => setModels(c.models)).catch(() => {});
+    void api<Catalog>(`/catalog${q({ cwd: boot.home })}`).then(setCatalog).catch(() => {});
   }, [boot.home]);
 
   const save = (patch: Partial<AppSettings>) => void api("/settings", { json: patch }).catch((e) => onToast(e.message));
@@ -46,7 +48,7 @@ export function Settings({
         <label>
           Default model
           <select value={s.defaultModel ?? ""} onChange={(e) => save({ defaultModel: e.target.value || undefined })}>
-            <option value="">Claude Code's default</option>
+            <option value="">Claude Code's default{defaultModel ? ` (${defaultModel})` : ""}</option>
             {models.map((m) => (
               <option key={m.value} value={m.value}>{m.displayName}</option>
             ))}
@@ -55,7 +57,7 @@ export function Settings({
         <label>
           Default effort
           <select value={s.defaultEffort ?? ""} onChange={(e) => save({ defaultEffort: (e.target.value || undefined) as Effort })}>
-            <option value="">Model default</option>
+            <option value="">Model default{catalog.defaults?.effort ? ` (${catalog.defaults.effort})` : ""}</option>
             {EFFORTS.map((e) => (
               <option key={e} value={e}>{e}</option>
             ))}
@@ -72,6 +74,10 @@ export function Settings({
         <label className="option">
           <input type="checkbox" checked={s.newSessionWorktree} onChange={(e) => save({ newSessionWorktree: e.target.checked })} />
           Start new sessions in their own git worktree
+        </label>
+        <label className="option">
+          <input type="checkbox" checked={!!s.remoteControl} onChange={(e) => save({ remoteControl: e.target.checked })} />
+          Turn on Remote Control for new sessions, so they show in the Claude app
         </label>
       </section>
 

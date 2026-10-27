@@ -76,26 +76,47 @@ function DiffView({ cwd, refresh, onOpen }: { cwd: string; refresh: number; onOp
   );
 }
 
+type FileData = { path: string; content: string; truncated: boolean } | { outside: true; path: string; dir: string };
+
 function FileView({ cwd, file }: { cwd: string; file?: OpenFile }) {
-  const [data, setData] = useState<{ path: string; content: string; truncated: boolean } | null>(null);
+  const [data, setData] = useState<FileData | null>(null);
   const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
   const target = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!file) return;
     let alive = true;
     setData(null);
-    api<{ path: string; content: string; truncated: boolean }>(`/git/file${q({ cwd, path: file.path })}`)
+    api<FileData>(`/git/file${q({ cwd, path: file.path })}`)
       .then((d) => alive && (setData(d), setError("")))
       .catch((e) => alive && setError(e.message));
     return () => void (alive = false);
-  }, [cwd, file?.path]);
+  }, [cwd, file?.path, reload]);
 
   useEffect(() => target.current?.scrollIntoView({ block: "center" }), [data, file?.line]);
 
   if (!file) return <div className="pane-empty">Click a file path in the chat or the diff to open it here.</div>;
   if (error) return <div className="pane-empty">{error}</div>;
   if (!data) return <div className="pane-empty">Loading…</div>;
+  if ("outside" in data)
+    return (
+      <div className="pane-empty allow-file">
+        <div className="mono small">{data.path}</div>
+        <div>This file is outside the session's folder. Allow the Files pane to read files in this folder?</div>
+        <div className="mono small muted">{data.dir}</div>
+        <button
+          className="primary"
+          onClick={() =>
+            void api("/files/allow", { json: { dir: data.dir } })
+              .then(() => setReload((n) => n + 1))
+              .catch((e) => setError(e.message))
+          }
+        >
+          Allow this folder
+        </button>
+      </div>
+    );
   return (
     <div className="file-pane">
       <div className="pane-bar mono small">{data.path}</div>

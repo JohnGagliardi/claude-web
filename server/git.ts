@@ -164,10 +164,20 @@ export async function workingDiff(cwd: string, against: "HEAD" | "base" = "HEAD"
 }
 
 // Reads a file for the viewer. Only paths inside the session's folder are served.
-export function readFileFor(cwd: string, file: string): { path: string; content: string; truncated: boolean } {
+const isInside = (root: string, full: string) => {
+  const rel = path.relative(path.resolve(root), full);
+  return !rel.startsWith("..") && !path.isAbsolute(rel);
+};
+
+// Reads a file in the session folder or another approved folder. A file
+// anywhere else comes back as `outside`, so the pane can ask to allow its folder.
+export function readFileFor(
+  cwd: string,
+  file: string,
+  approved: string[] = [],
+): { path: string; content: string; truncated: boolean } | { outside: true; path: string; dir: string } {
   const full = path.resolve(cwd, file);
-  const rel = path.relative(path.resolve(cwd), full);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("That file is outside this session's folder.");
+  if (![cwd, ...approved].some((root) => isInside(root, full))) return { outside: true, path: full, dir: path.dirname(full) };
   const buf = fs.readFileSync(full);
   if (buf.includes(0)) throw new Error("Binary file");
   const limit = 2_000_000;

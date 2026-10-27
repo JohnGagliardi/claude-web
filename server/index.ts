@@ -82,6 +82,9 @@ function startSession(opts: ConstructorParameters<typeof LiveSession>[0]): LiveS
     existing ??
     new LiveSession(
       {
+        // A resumed session keeps its last Remote Control choice; others follow
+        // the setting. Side chats stay out of the sidebar, so off the phone too.
+        remoteControl: !opts.fork && ((opts.resume ? getState().sessions[opts.resume]?.remote : undefined) ?? !!getSettings().remoteControl),
         ...opts,
         extra: (key) => ({
           mcpServers: {
@@ -196,7 +199,8 @@ setInterval(() => {
   const minutes = getSettings().idleMinutes;
   if (!minutes) return;
   for (const s of live.values()) {
-    if (!s.running && !s.backgroundTasks && !s.summary().pending.length && Date.now() - s.lastActive > minutes * 60_000) s.close();
+    // A Remote Control session stays up so the phone can still reach it.
+    if (!s.running && !s.backgroundTasks && !s.remote && !s.summary().pending.length && Date.now() - s.lastActive > minutes * 60_000) s.close();
   }
 }, 60_000);
 
@@ -213,15 +217,21 @@ async function sessionList() {
   return { sessions, projects, groups: state.groups };
 }
 
-const catalogCache = new Map<string, { models: ModelInfo[]; commands: SlashCommand[] }>();
+const catalogCache = new Map<string, { models: ModelInfo[]; commands: SlashCommand[]; defaults: { model?: string; effort?: string | null } }>();
 async function catalog(cwd: string) {
   const hit = catalogCache.get(cwd);
   if (hit) return hit;
   const running = [...live.values()].find((s) => s.opts.cwd === cwd);
   const probe = running ?? new LiveSession({ cwd }, () => {});
   try {
-    const [models, commands] = await Promise.all([probe.supportedModels(), probe.supportedCommands()]);
-    const result = { models, commands };
+    // A running session's applied settings reflect its own picks, so only a fresh probe tells the defaults.
+    const fresh = running ? new LiveSession({ cwd }, () => {}) : probe;
+    const [models, commands, defaults] = await Promise.all([
+      probe.supportedModels(),
+      probe.supportedCommands(),
+      fresh.applied().catch(() => ({})).finally(() => fresh !== probe && fresh.close()),
+    ]);
+    const result = { models, commands, defaults };
     catalogCache.set(cwd, result);
     return result;
   } finally {
@@ -365,6 +375,16 @@ api.post(
     res.json({ ok: true });
   }),
 );
+api.post(
+  "/live/:key/remote",
+  wrap(async (req, res) => {
+    const s = liveFor(req);
+    const enabled = !!req.body?.enabled;
+    await s.setRemoteControl(enabled);
+    if (s.sessionId) updateSessionMeta(s.sessionId, { remote: enabled });
+    res.json(s.remote ?? null);
+  }),
+);
 // The tail of a background task's output: from the live session when there is
 // one, else from its saved output file under Claude Code's temp folder: a
 // "claude…" folder in the system temp dir, or /tmp/claude-<uid> on Mac and Linux.
@@ -418,7 +438,35 @@ api.get(
   "/git/diff",
   wrap(async (req, res) => res.json(await workingDiff(folder(req), req.query.against === "base" ? "base" : "HEAD"))),
 );
-api.get("/git/file", wrap(async (req, res) => res.json(readFileFor(folder(req), String(req.query.path ?? "")))));
+// Folders Claude Code itself may use besides the session's: additionalDirectories
+// in the user, project and local settings.
+function claudeDirs(cwd: string): string[] {
+  const files = [path.join(os.homedir(), ".claude", "settings.json"), path.join(cwd, ".claude", "settings.json"), path.join(cwd, ".claude", "settings.local.json")];
+  return files.flatMap((f) => {
+    try {
+      const dirs = JSON.parse(fs.readFileSync(f, "utf8"))?.permissions?.additionalDirectories;
+      return Array.isArray(dirs) ? dirs.map((d: string) => path.resolve(cwd, String(d).replace(/^~(?=$|[\\/])/, os.homedir()))) : [];
+    } catch {
+      return [];
+    }
+  });
+}
+api.get(
+  "/git/file",
+  wrap(async (req, res) => {
+    const cwd = folder(req);
+    res.json(readFileFor(cwd, String(req.query.path ?? ""), [...claudeDirs(cwd), ...getState().allowedDirs]));
+  }),
+);
+api.post(
+  "/files/allow",
+  wrap(async (req, res) => {
+    const dir = path.resolve(String(req.body?.dir ?? ""));
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`Not a folder: ${dir}`);
+    updateState((s) => void (s.allowedDirs.includes(dir) || s.allowedDirs.push(dir)));
+    res.json({ ok: true });
+  }),
+);
 // One directory level for the Files pane, folders first; stays inside the session folder.
 api.get(
   "/files/list",

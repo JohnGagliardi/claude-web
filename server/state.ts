@@ -20,12 +20,16 @@ export type SessionMeta = {
   parent?: string;
   scheduleId?: string;
   sideChat?: boolean;
+  // Last Remote Control choice, restored when the session restarts.
+  remote?: boolean;
 };
 
 export type AppState = {
   projects: string[];
   groups: string[];
   sessions: Record<string, SessionMeta>;
+  // Folders outside a session's own that the user let the Files pane read.
+  allowedDirs: string[];
 };
 
 export type DeviceConfig = {
@@ -37,7 +41,7 @@ export type DeviceConfig = {
   browser?: { channel?: string };
 };
 
-const emptyState = (): AppState => ({ projects: [], groups: [], sessions: {} });
+const emptyState = (): AppState => ({ projects: [], groups: [], sessions: {}, allowedDirs: [] });
 
 function readJson<T>(file: string, fallback: T): T {
   try {
@@ -74,6 +78,8 @@ export type AppSettings = {
   newSessionWorktree: boolean;
   // Live sessions idle this long are shut down; 0 keeps them forever.
   idleMinutes: number;
+  // Turn Remote Control on for every new session.
+  remoteControl?: boolean;
 };
 
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");

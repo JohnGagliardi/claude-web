@@ -23,7 +23,8 @@ export type WrapAction = { label: string; message: string };
 
 // Desktop-app tools that draw part of the screen rather than doing work. They
 // show up in sessions started from the Code tab.
-const PLAN_TOOL = "mcp__ccd_turn__update_plan";
+// Clyde's own tool server offers the same update_plan for its sessions.
+const isPlanTool = (name: string) => name === "mcp__ccd_turn__update_plan" || name === "mcp__claude-web__update_plan";
 const WRAP_TOOL = "mcp__ccd_turn__wrap_up";
 const CHAPTER_TOOL = "mcp__ccd_session__mark_chapter";
 const APP_ACTIONS: Record<string, string> = {
@@ -140,7 +141,7 @@ export function buildItems(msgs: RawMsg[]): Item[] {
             name: b.name,
             input: b.input,
             children: nested.get(b.id) ?? [],
-            hidden: b.name === PLAN_TOOL || b.name === "TodoWrite",
+            hidden: isPlanTool(b.name) || b.name === "TodoWrite",
           };
           tools.set(t.id, t);
           items.push(t);
@@ -169,14 +170,20 @@ export type Todo = { content: string; status: "pending" | "in_progress" | "compl
 
 // The current task list: TodoWrite replaces it whole, while the desktop app's
 // update_plan also advances it step by step, and its wrap-up checks off the rest.
+// A list belongs to the turn that last touched it, so one left unfinished by an
+// interrupted turn goes away once the user moves on.
 export function latestTodos(items: Item[]): Todo[] | undefined {
   let todos: Todo[] | undefined;
   for (const it of items) {
+    if (it.kind === "user") {
+      todos = undefined;
+      continue;
+    }
     if (it.kind === "wrap" && todos) todos = todos.map((t) => ({ ...t, status: "completed" }));
     if (it.kind !== "tool") continue;
     const input = it.input ?? {};
     if (it.name === "TodoWrite" && Array.isArray(input.todos)) todos = input.todos;
-    if (it.name !== PLAN_TOOL) continue;
+    if (!isPlanTool(it.name)) continue;
     if (Array.isArray(input.items)) todos = input.items.map((x: any) => ({ content: String(x.content ?? ""), status: x.status ?? "pending" }));
     if (!todos) continue;
     const next = todos.map((t) => ({ ...t }));

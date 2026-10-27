@@ -36,9 +36,12 @@ export type LiveSummary = {
   model?: string;
   permissionMode: PermissionMode;
   effort?: Effort;
+  appliedEffort?: Effort | null;
   pending: PendingPermission[];
   error?: string;
   sideChat?: boolean;
+  // Remote Control: also shown in claude.ai/code and the Claude app.
+  remote?: { state: string; url?: string; detail?: string };
 };
 
 export type Bootstrap = {
@@ -60,6 +63,7 @@ export type AppSettings = {
   defaultPermissionMode: PermissionMode;
   newSessionWorktree: boolean;
   idleMinutes: number;
+  remoteControl?: boolean;
 };
 
 export type Schedule = {
@@ -110,9 +114,18 @@ export const q = (params: Record<string, string | undefined>) =>
 
 export type BrowseResult = { path: string; parent: string | null; entries: string[] };
 
-export type ModelInfo ={ value: string; displayName: string; description: string; supportsEffort?: boolean };
+export type ModelInfo = { value: string; resolvedModel?: string; displayName: string; description: string; supportsEffort?: boolean };
 export type SlashCommand = { name: string; description: string; argumentHint: string };
-export type Catalog = { models: ModelInfo[]; commands: SlashCommand[] };
+// defaults: what an unset model and effort resolve to.
+export type Catalog = { models: ModelInfo[]; commands: SlashCommand[]; defaults?: { model?: string; effort?: Effort | null } };
+
+// "Default (Opus 5.5)": names the model an unset pick resolves to. The catalog
+// lists "default" itself too, which the empty option already covers.
+export function defaultModelName(c: Pick<Catalog, "models" | "defaults">) {
+  const id = c.defaults?.model ?? c.models.find((m) => m.value === "default")?.resolvedModel;
+  return c.models.find((m) => m.value !== "default" && (m.resolvedModel === id || m.value === id))?.displayName ?? id;
+}
+export const pickableModels = (models: ModelInfo[]) => models.filter((m) => m.value !== "default");
 
 // Loose shape shared by persisted SessionMessages and live SDKMessages.
 export type RawMsg = {

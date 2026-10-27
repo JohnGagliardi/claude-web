@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent } from "react";
-import { api, socket, type Bootstrap, type Catalog, type LiveSummary, type RawMsg } from "./api";
+import { api, defaultModelName, pickableModels, socket, type Bootstrap, type Catalog, type LiveSummary, type RawMsg } from "./api";
 import { buildItems, latestTodos } from "./transcript";
 import { Transcript } from "./components/Transcript";
+import { SummaryView } from "./components/SummaryView";
 import { Composer, type Attachment, type ComposerSettings } from "./components/Composer";
 import { PermissionCard, type Reply } from "./components/Permission";
 import { SidePane, parseFileRef, type OpenFile, type PaneKind } from "./components/SidePane";
@@ -91,6 +92,9 @@ export function SessionView(props: {
   useEffect(() => void (!props.compact && store(`pane${props.slot}`, pane ?? "")), [pane, props.slot]);
   const [paneWidth, setPaneWidth] = useState(() => Number(stored("paneWidth")) || 520);
   useEffect(() => store("paneWidth", String(paneWidth)), [paneWidth]);
+  // Summary shows only what Claude tells the user; console shows every step.
+  const [summary, setSummary] = useState(() => stored("viewMode") !== "console");
+  useEffect(() => store("viewMode", summary ? "summary" : "console"), [summary]);
   const [sideChat, setSideChat] = useState<View | undefined>();
   const [openFile, setOpenFile] = useState<OpenFile | undefined>();
   const [refresh, setRefresh] = useState(0);
@@ -181,6 +185,11 @@ export function SessionView(props: {
         }
         case "reconnected":
           if (keyRef.current) socket.send({ t: "subscribe", key: keyRef.current });
+          break;
+        // A turn started elsewhere (the phone, over Remote Control): its prompt
+        // is only in the transcript, so replay the log and re-read that.
+        case "external-turn":
+          if (m.key === keyRef.current) socket.send({ t: "subscribe", key: m.key });
           break;
       }
     });
@@ -288,7 +297,11 @@ export function SessionView(props: {
   const chat = (
     <div className="chat">
       <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
-        <Transcript items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} />
+        {summary && !props.compact ? (
+          <SummaryView items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} />
+        ) : (
+          <Transcript items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} />
+        )}
       </ReplyContext.Provider>
       <div className="dock">
         {current?.error && <div className="banner err">{current.error}</div>}
@@ -306,13 +319,17 @@ export function SessionView(props: {
         <Composer
           running={running}
           settings={settings}
-          models={catalog.models}
+          models={pickableModels(catalog.models)}
+          defaultModel={defaultModelName(catalog)}
+          // A running session knows its model's real default; before that, the catalog's.
+          defaultEffort={current && !current.effort && current.appliedEffort !== undefined ? current.appliedEffort : catalog.defaults?.effort}
           commands={catalog.commands}
           placeholder={props.compact ? "Ask a side question. The main session isn't affected." : undefined}
           onSettings={changeSettings}
           onSend={(t, a) => void send(t, a)}
           onError={props.onToast}
           onStop={() => current && socket.send({ t: "interrupt", key: current.key })}
+          draftKey={view.sessionId ?? view.id}
         />
       </div>
     </div>
@@ -344,6 +361,14 @@ export function SessionView(props: {
               {view.cwd}
               {info?.gitBranch && ` · ${info.gitBranch}`}
             </div>
+          </div>
+          <div className="segmented view-toggle" role="group" aria-label="Transcript view">
+            <button className={summary ? "on" : ""} onClick={() => setSummary(true)} title="Only what Claude tells you">
+              Summary
+            </button>
+            <button className={summary ? "" : "on"} onClick={() => setSummary(false)} title="Every step and tool call">
+              Console
+            </button>
           </div>
           {PANE_BUTTONS.map(([k, label, Icon]) => (
             <button key={k} className={`icon-btn ${pane === k ? "on" : ""}`} onClick={() => openPane(k)} title={label} aria-label={label}>

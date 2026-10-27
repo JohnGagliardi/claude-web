@@ -58,15 +58,24 @@ export type LiveSummary = {
   model?: string;
   permissionMode: PermissionMode;
   effort?: EffortLevel;
+  // The effort actually sent once defaults are resolved; null when the model takes none.
+  appliedEffort?: EffortLevel | null;
   pending: PendingPermission[];
   error?: string;
   // A side chat: a fork that stays out of the sidebar.
   sideChat?: boolean;
+  // Remote Control: the session also shows in claude.ai/code and the Claude app.
+  remote?: RemoteState;
 };
+
+// `state` is the CLI's bridge_state (ready, connected, failed, ...), or
+// "connecting" until it reports one.
+export type RemoteState = { state: string; url?: string; detail?: string };
 
 export type LiveEvent =
   | { t: "sdk"; key: string; msg: SDKMessage }
   | { t: "live"; session: LiveSummary }
+  | { t: "external-turn"; key: string }
   | { t: "closed"; key: string; sessionId?: string };
 
 export type StartOptions = {
@@ -78,6 +87,8 @@ export type StartOptions = {
   title?: string;
   // With resume: branch off a copy of that conversation instead of continuing it.
   fork?: boolean;
+  // Turn Remote Control on as soon as the session starts.
+  remoteControl?: boolean;
   // Per-session extras such as the app's MCP tools, built with the session key.
   extra?: (key: string) => Partial<Options>;
 };
@@ -97,6 +108,8 @@ export class LiveSession {
   backgroundTasks = 0;
   permissionMode: PermissionMode;
   effort?: EffortLevel;
+  appliedEffort?: EffortLevel | null;
+  remote?: RemoteState;
   // Messages seen since this process started, replayed to late subscribers.
   readonly log: SDKMessage[] = [];
   private readonly input = new InputQueue();
@@ -138,9 +151,11 @@ export class LiveSession {
       model: this.model,
       permissionMode: this.permissionMode,
       effort: this.effort,
+      appliedEffort: this.appliedEffort,
       pending: [...this.pending.values()].map(({ resolve: _r, ...p }) => p),
       error: this.error,
       sideChat: this.opts.fork || undefined,
+      remote: this.remote,
     };
   }
 
@@ -169,6 +184,23 @@ export class LiveSession {
           this.permissionMode = msg.permissionMode;
           for (const w of this.idWaiters.splice(0)) w(msg.session_id);
           this.changed();
+          void this.refreshApplied();
+          if (this.opts.remoteControl && !this.remote) void this.setRemoteControl(true).catch(() => {});
+        }
+        // A prompt sent from the phone starts a turn this side didn't. The SDK
+        // never echoes that prompt, but the CLI has saved it to the transcript by
+        // now, so clients re-read it from there.
+        if (!this.running && (msg.type === "assistant" || msg.type === "stream_event")) {
+          this.running = true;
+          this.changed();
+          this.emit({ t: "external-turn", key: this.key });
+        }
+        if (msg.type === "system" && (msg as { subtype?: string }).subtype === "bridge_state") {
+          const b = msg as unknown as { state: string; detail?: string };
+          if (this.remote) {
+            this.remote = { ...this.remote, state: b.state, detail: b.detail };
+            this.changed();
+          }
         }
         if (msg.type === "result") {
           this.running = false;
@@ -250,6 +282,7 @@ export class LiveSession {
     await this.q.setModel(model);
     this.model = model;
     this.changed();
+    void this.refreshApplied();
   }
 
   async setPermissionMode(mode: PermissionMode) {
@@ -262,6 +295,43 @@ export class LiveSession {
   async setEffort(effort?: EffortLevel) {
     await this.q.applyFlagSettings({ effortLevel: effort ?? null });
     this.effort = effort;
+    this.changed();
+    void this.refreshApplied();
+  }
+
+  // The model and effort the session really uses, after defaults and settings.
+  // getSettings exists at runtime but isn't on the typed Query.
+  async applied(): Promise<{ model?: string; effort?: EffortLevel | null }> {
+    const r = await (this.q as unknown as { getSettings(): Promise<{ applied?: { model?: string; effort?: EffortLevel | null } }> }).getSettings();
+    return r.applied ?? {};
+  }
+
+  private async refreshApplied() {
+    try {
+      this.appliedEffort = (await this.applied()).effort ?? null;
+      this.changed();
+    } catch {}
+  }
+
+  // Remote Control, as the desktop app's toggle does it: the CLI runs the
+  // bridge (and its sign-in and device checks) itself. Not on the typed Query.
+  async setRemoteControl(enabled: boolean) {
+    const request = (r: object) => (this.q as unknown as { request(r: object): Promise<{ response?: { session_url?: string } }> }).request(r);
+    if (!enabled) {
+      this.remote = undefined;
+      this.changed();
+      await request({ subtype: "remote_control", enabled: false });
+      return;
+    }
+    this.remote = { state: "connecting" };
+    this.changed();
+    try {
+      const r = await request({ subtype: "remote_control", enabled: true });
+      // bridge_state may already have moved past "connecting".
+      if (this.remote) this.remote = { ...this.remote, state: this.remote.state === "connecting" ? "ready" : this.remote.state, url: r.response?.session_url };
+    } catch (e) {
+      this.remote = { state: "failed", detail: e instanceof Error ? e.message : String(e) };
+    }
     this.changed();
   }
 

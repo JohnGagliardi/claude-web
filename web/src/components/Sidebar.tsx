@@ -128,8 +128,8 @@ Ctrl+click to open in split view · Right-click for options`}
               >
                 ✎
               </button>
-              <button title={s.archived ? "Unarchive" : "Archive"} onClick={() => props.onMeta(s, { archived: !s.archived })}>
-                {s.archived ? "↺" : "⌫"}
+              <button title={s.archived ? "Restore to sessions" : "Remove from sessions (moves it to Archived)"} onClick={() => props.onMeta(s, { archived: !s.archived })}>
+                {s.archived ? "↺" : "✕"}
               </button>
             </>
           )}
@@ -166,7 +166,7 @@ Ctrl+click to open in split view · Right-click for options`}
       </div>
       <div className="sidebar-foot">
         <button className="link" onClick={() => setShowArchived(!showArchived)}>
-          {showArchived ? "← Back to sessions" : "Archived"}
+          {showArchived ? "← Back to sessions" : "Archived (removed)"}
         </button>
         {props.footer}
       </div>
@@ -189,11 +189,11 @@ Ctrl+click to open in split view · Right-click for options`}
                 Rename
               </button>
               <button onClick={() => (props.onMeta(menu.s, { archived: !menu.s.archived }), setMenu(null))}>
-                {menu.s.archived ? "Unarchive" : "Archive"}
+                {menu.s.archived ? "Restore to sessions" : "Remove from sessions"}
               </button>
             </>
           )}
-          {menu.s.archived && (
+          {menu.s.sessionId && (
             <button
               className="danger"
               onClick={() => {
