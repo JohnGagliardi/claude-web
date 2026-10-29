@@ -361,6 +361,7 @@ export function SidePane(props: {
   autofix?: boolean;
   file?: OpenFile;
   onFile: (f?: OpenFile) => void;
+  previewFile?: OpenFile;
   refresh: number;
   terminals: TerminalInfo[];
   terminal?: string;
@@ -399,7 +400,9 @@ export function SidePane(props: {
         )}
         {props.kind === "files" && (props.file ? <FileView cwd={props.cwd} file={props.file} /> : <FileTree cwd={props.cwd} onOpen={props.onFile} />)}
         {props.kind === "terminal" && <TerminalPane cwd={props.cwd} terminals={props.terminals} selected={props.terminal} onSelect={props.onTerminal} />}
-        {props.kind === "browser" && <PreviewPane cwd={props.cwd} previews={props.previews} liveKey={props.liveKey} onToast={props.onToast} />}
+        {props.kind === "browser" && (
+          <PreviewPane cwd={props.cwd} previews={props.previews} liveKey={props.liveKey} onToast={props.onToast} previewFile={props.previewFile} />
+        )}
         {(props.kind === "sidechat" || props.kind === "tasks") && props.children}
       </div>
     </aside>

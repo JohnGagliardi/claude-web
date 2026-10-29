@@ -97,6 +97,7 @@ export function SessionView(props: {
   useEffect(() => store("viewMode", summary ? "summary" : "console"), [summary]);
   const [sideChat, setSideChat] = useState<View | undefined>();
   const [openFile, setOpenFile] = useState<OpenFile | undefined>();
+  const [previewFile, setPreviewFile] = useState<OpenFile | undefined>();
   const [refresh, setRefresh] = useState(0);
   const [terminal, setTerminal] = useState<string | undefined>();
 
@@ -107,13 +108,6 @@ export function SessionView(props: {
   const sideRef = useRef<string | undefined>(undefined);
   viewRef.current = view;
   keyRef.current = current?.key ?? view.liveKey;
-
-  // Applies the name chosen in the New session modal the first time the
-  // session gets a real id (the modal only knows a cwd, not an id yet).
-  const titleOnFirstSession = (sessionId: string | undefined, cwd: string) => {
-    if (sessionId && !viewRef.current.sessionId && viewRef.current.initialTitle)
-      void api(`/sessions/${sessionId}/meta`, { json: { title: viewRef.current.initialTitle, dir: cwd } }).catch(() => {});
-  };
 
   useEffect(() => store(`pane${props.slot}`, pane ?? ""), [pane, props.slot]);
 
@@ -145,15 +139,12 @@ export function SessionView(props: {
         case "started":
           if (m.ref !== pendingRef.current) break;
           keyRef.current = m.session.key;
-          titleOnFirstSession(m.session.sessionId, m.session.cwd);
           // cwd can change here: a worktree session runs in its new folder.
           onChange({ ...viewRef.current, cwd: m.session.cwd, liveKey: m.session.key, sessionId: viewRef.current.sessionId ?? m.session.sessionId });
           break;
         case "live":
-          if (m.session.key === keyRef.current && m.session.sessionId && !viewRef.current.sessionId) {
-            titleOnFirstSession(m.session.sessionId, viewRef.current.cwd);
+          if (m.session.key === keyRef.current && m.session.sessionId && !viewRef.current.sessionId)
             onChange({ ...viewRef.current, liveKey: m.session.key, sessionId: m.session.sessionId });
-          }
           break;
         case "side-started":
           if (m.ref === sideRef.current) props.onOpenSide({ liveKey: m.session.key, sessionId: m.session.sessionId, cwd: m.session.cwd });
@@ -216,8 +207,14 @@ export function SessionView(props: {
   }, [liveLog.length, lastType]);
 
   const showFile = useCallback((ref: string) => {
-    setOpenFile(parseFileRef(ref));
-    setPane("files");
+    const f = parseFileRef(ref);
+    if (/\.html?$/i.test(f.path)) {
+      setPreviewFile(f);
+      setPane("browser");
+    } else {
+      setOpenFile(f);
+      setPane("files");
+    }
   }, []);
 
   const send = async (text: string, attachments: Attachment[] = []) => {
@@ -242,6 +239,7 @@ export function SessionView(props: {
       resume: view.sessionId ?? view.forkOf,
       sideChat: fork,
       worktree: !view.sessionId && !fork && (view.worktree ?? props.useWorktree),
+      title: !view.sessionId && !fork ? view.initialTitle : undefined,
       text,
       content,
       ...draft,
@@ -403,6 +401,7 @@ export function SessionView(props: {
                   autofix={info?.autofix}
                   file={openFile}
                   onFile={(f) => (setOpenFile(f), setPane("files"))}
+                  previewFile={previewFile}
                   terminals={boot.terminals}
                   terminal={terminal}
                   onTerminal={setTerminal}

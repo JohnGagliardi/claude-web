@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, q, type BrowseResult } from "../api";
 import { FolderIcon } from "./Icons";
 
@@ -56,6 +56,16 @@ export function NewSessionModal(props: {
   const [name, setName] = useState("");
   const [worktree, setWorktree] = useState(props.defaultWorktree);
   const [browsing, setBrowsing] = useState(false);
+  const nameInput = useRef<HTMLInputElement>(null);
+
+  // The `autoFocus` attribute alone isn't always reliable for an element that
+  // appears via a state update rather than a fresh page load (seen most on
+  // Safari/WebKit) — if focus doesn't actually land in the field, a Backspace
+  // keystroke can fall through to the browser's own default handling instead
+  // of editing the text. Force it explicitly once mounted.
+  useEffect(() => {
+    if (!browsing) nameInput.current?.focus();
+  }, [browsing]);
 
   const canStart = name.trim().length > 0;
   const start = () => canStart && props.onStart({ cwd, name: name.trim(), worktree });
@@ -88,6 +98,7 @@ export function NewSessionModal(props: {
         <label className="field">
           Name
           <input
+            ref={nameInput}
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, q, socket, type LaunchConfig, type PreviewInfo } from "../api";
+import type { OpenFile } from "./SidePane";
 
 type Shot = { data: string; url: string } | null;
 
@@ -22,7 +23,20 @@ function ClaudeBrowser({ liveKey }: { liveKey?: string }) {
   );
 }
 
-export function PreviewPane({ cwd, previews, liveKey, onToast }: { cwd: string; previews: PreviewInfo[]; liveKey?: string; onToast: (t: string) => void }) {
+export function PreviewPane({
+  cwd,
+  previews,
+  liveKey,
+  onToast,
+  previewFile,
+}: {
+  cwd: string;
+  previews: PreviewInfo[];
+  liveKey?: string;
+  onToast: (t: string) => void;
+  // An HTML file opened from the chat/diff/files — rendered here instead of as source text.
+  previewFile?: OpenFile;
+}) {
   const [configs, setConfigs] = useState<LaunchConfig[]>([]);
   const [mode, setMode] = useState<"page" | "claude">("page");
   const [url, setUrl] = useState("");
@@ -48,6 +62,17 @@ export function PreviewPane({ cwd, previews, liveKey, onToast }: { cwd: string; 
       setFrameUrl(first.url);
     }
   }, [mine.map((p) => p.id + p.status).join()]);
+
+  // An explicit file open always wins over the above — runs after it so it's
+  // the one left standing if both fire in the same commit.
+  useEffect(() => {
+    if (!previewFile) return;
+    const u = `/api/preview-file${q({ cwd, path: previewFile.path })}`;
+    setMode("page");
+    setUrl(u);
+    setFrameUrl(u);
+    setFrameKey((k) => k + 1);
+  }, [previewFile, cwd]);
 
   useEffect(() => {
     if (!logsFor) return;

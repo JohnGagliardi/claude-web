@@ -61,8 +61,12 @@ function onLiveEvent(ev: LiveEvent) {
     flushReports(ev.key);
   }
   // Remember each session's mode, whether the user or Claude (leaving plan mode) changed it.
-  if (ev.t === "live" && ev.session.sessionId && getState().sessions[ev.session.sessionId]?.permissionMode !== ev.session.permissionMode)
+  // Broadcast sessions-changed too: clients read the remembered mode off boot.sessions
+  // (SessionView's initial draft), which only refetches on that signal, not on "live".
+  if (ev.t === "live" && ev.session.sessionId && getState().sessions[ev.session.sessionId]?.permissionMode !== ev.session.permissionMode) {
     updateSessionMeta(ev.session.sessionId, { permissionMode: ev.session.permissionMode });
+    broadcast({ t: "sessions-changed" });
+  }
   if (ev.t === "closed") {
     live.delete(ev.key);
     sideLinks.delete(ev.key);
@@ -463,6 +467,17 @@ api.get(
     res.json(readFileFor(cwd, String(req.query.path ?? ""), [...claudeDirs(cwd), ...getState().allowedDirs]));
   }),
 );
+// Serves an HTML file's raw bytes (same path rules as /git/file) so the
+// Browser pane's iframe can render it directly instead of showing source text.
+api.get(
+  "/preview-file",
+  wrap(async (req, res) => {
+    const cwd = folder(req);
+    const file = readFileFor(cwd, String(req.query.path ?? ""), [...claudeDirs(cwd), ...getState().allowedDirs]);
+    if ("outside" in file) return res.status(403).json({ error: `Outside the session folder: ${file.path}` });
+    res.set("Content-Type", "text/html; charset=utf-8").send(file.content);
+  }),
+);
 api.post(
   "/files/allow",
   wrap(async (req, res) => {
@@ -600,7 +615,7 @@ wss.on("connection", (ws) => {
             cwd = wt.path;
           }
           const fork = !!m.sideChat && !!m.resume;
-          const session = startSession({ cwd, resume: m.resume, fork, model: m.model, effort: m.effort, permissionMode: m.permissionMode });
+          const session = startSession({ cwd, resume: m.resume, fork, model: m.model, effort: m.effort, permissionMode: m.permissionMode, title: m.title });
           ws.send(JSON.stringify({ t: "started", ref: m.ref, session: session.summary() }));
           // A side chat is a fork of the session it was opened from; it stays out of the sidebar.
           if (fork)
