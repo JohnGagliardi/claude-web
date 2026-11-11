@@ -139,6 +139,23 @@ export const UndoIcon = () => (
   </Svg>
 );
 
+export const RestartIcon = () => (
+  <Svg>
+    <path d="M22 4v6h-6" />
+    <path d="M2 20v-6h6" />
+    <path d="M3.5 9a8.5 8.5 0 0 1 14-3.5L22 10" />
+    <path d="M20.5 15a8.5 8.5 0 0 1-14 3.5L2 14" />
+  </Svg>
+);
+
+export const ReportIcon = () => (
+  <Svg>
+    <path d="M9 3.5h6a1 1 0 0 1 1 1V5h-8v-.5a1 1 0 0 1 1-1z" />
+    <rect x="6" y="4.5" width="12" height="16.5" rx="2.2" />
+    <path d="M9 11h6M9 14.5h6M9 18h3.5" />
+  </Svg>
+);
+
 export const AgentIcon = () => (
   <Svg>
     <rect x="5" y="8" width="14" height="11" rx="3" />

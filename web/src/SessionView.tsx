@@ -7,8 +7,8 @@ import { Composer, type Attachment, type ComposerSettings } from "./components/C
 import { PermissionCard, type Reply } from "./components/Permission";
 import { SidePane, parseFileRef, type OpenFile, type PaneKind } from "./components/SidePane";
 import { BackgroundTasks, InfoPane } from "./components/InfoPane";
-import { ChatIcon, CloseIcon, DiffIcon, FolderIcon, GlobeIcon, RailIcon, TasksIcon, TerminalIcon } from "./components/Icons";
-import { OpenFileContext, ReplyContext, SessionContext } from "./fileLinks";
+import { ChatIcon, CloseIcon, DiffIcon, FolderIcon, GlobeIcon, RailIcon, RestartIcon, TasksIcon, TerminalIcon } from "./components/Icons";
+import { OpenFileContext, ReplyContext, RunContext, SessionContext } from "./fileLinks";
 import { stored, store } from "./storage";
 
 // forkOf: a side chat that branches off that session on its first message.
@@ -106,6 +106,7 @@ export function SessionView(props: {
   const keyRef = useRef<string | undefined>(undefined);
   const pendingRef = useRef<string | undefined>(undefined);
   const sideRef = useRef<string | undefined>(undefined);
+  const restartingRef = useRef(false);
   viewRef.current = view;
   keyRef.current = current?.key ?? view.liveKey;
 
@@ -218,6 +219,9 @@ export function SessionView(props: {
   }, []);
 
   const send = async (text: string, attachments: Attachment[] = []) => {
+    // "/mcp" here would just hit the chat's own non-interactive fallback
+    // text; redirect it to a real interactive CLI in the terminal instead.
+    if (text.trim() === "/mcp" && !attachments.length) return openMcpTerminal();
     let content: string | unknown[] = text;
     if (attachments.length) {
       try {
@@ -263,7 +267,108 @@ export function SessionView(props: {
 
   const reply = (id: string, r: Reply) => current && socket.send({ t: "permission", key: current.key, id, reply: r });
 
+  // Kills the live process (if any) and resumes the same conversation in a
+  // fresh one — for when a session is stuck and Stop doesn't help.
+  const restart = () => {
+    if (!view.sessionId || restartingRef.current) return;
+    restartingRef.current = true;
+    const sessionId = view.sessionId;
+    const cwd = view.cwd;
+    const doStart = () => {
+      const ref = crypto.randomUUID();
+      pendingRef.current = ref;
+      socket.send({ t: "start", ref, cwd, resume: sessionId, ...draft });
+      restartingRef.current = false;
+      props.onToast("Session restarted.");
+    };
+    if (current) {
+      const keyToClose = current.key;
+      const off = socket.on((m) => {
+        if (m.t === "closed" && m.key === keyToClose) {
+          off();
+          doStart();
+        }
+      });
+      socket.send({ t: "close", key: keyToClose });
+    } else {
+      doStart();
+    }
+  };
+
+  const statusReport = () => void send("Give me a status report: what you've done so far, what's currently in progress, what's left, and any blockers.");
+
+  // The real /compact runs async and can take a while; this is just a quick,
+  // purely cosmetic "whoosh" so the click feels like it did something right away.
+  const [compacting, setCompacting] = useState(false);
+  const compact = () => {
+    setCompacting(true);
+    void send("/compact");
+    setTimeout(() => setCompacting(false), 1500);
+  };
+
   const openPane = (k: PaneKind) => setPane(pane === k ? null : k);
+
+  // A "run" button on a shell command shown in the transcript sends it to this
+  // session's terminal: reuse an alive one in this cwd, or open a new one first.
+  const runInTerminal = useCallback(
+    (command: string) => {
+      const go = (id: string) => {
+        setTerminal(id);
+        setPane("terminal");
+        socket.send({ t: "term:input", id, data: command + "\r" });
+      };
+      const existing = boot.terminals.find((t) => t.cwd === view.cwd && t.alive);
+      if (existing) return go(existing.id);
+      const ref = crypto.randomUUID();
+      const off = socket.on((m) => {
+        if (m.t === "term:opened" && m.ref === ref) {
+          off();
+          go(m.id);
+        }
+      });
+      socket.send({ t: "term:open", ref, cwd: view.cwd });
+    },
+    [boot.terminals, view.cwd],
+  );
+
+  // Typing "/mcp" opens a dedicated terminal running a fresh `claude` CLI and
+  // types "/mcp" into it once it's up: the real interactive menu only renders
+  // against an actual TTY, which the chat's own non-interactive /mcp can't
+  // give you. Always a new terminal (never reused), since this types into it
+  // without knowing what else might already be running there.
+  const openMcpTerminal = useCallback(() => {
+    const ref = crypto.randomUUID();
+    const off = socket.on((m) => {
+      if (m.t !== "term:opened" || m.ref !== ref) return;
+      off();
+      const id = m.id;
+      setTerminal(id);
+      setPane("terminal");
+      socket.send({ t: "term:input", id, data: "claude\r" });
+
+      // The shell's own echo of what we just typed counts as "output," so a
+      // naive wait-for-output-then-settle races claude's actual startup and
+      // fires too early. A directory's first-ever bare launch also shows a
+      // one-time "do you trust this folder" prompt defaulted to "No, exit" —
+      // sending Enter blind would hit that and quit claude outright. So:
+      // check the buffered output for that prompt's text, confirm it if
+      // present (Down, Enter -> "Yes, I trust this folder"), then give the
+      // interactive UI time to finish loading before typing /mcp.
+      let buf = "";
+      const offData = socket.on((e) => {
+        if (e.t === "term:data" && e.id === id) buf += e.data;
+      });
+      setTimeout(() => {
+        const trusted = /trust this folder/i.test(buf);
+        if (trusted) socket.send({ t: "term:input", id, data: "\x1b[B\r" });
+        setTimeout(() => {
+          offData();
+          socket.send({ t: "term:input", id, data: "/mcp\r" });
+        }, trusted ? 3500 : 2000);
+      }, 1800);
+    });
+    socket.send({ t: "term:open", ref, cwd: view.cwd });
+  }, [view.cwd]);
 
   // The side chat forks this session, so it's created only once the session
   // has an id; opened earlier, the pane waits for the first message.
@@ -300,14 +405,21 @@ export function SessionView(props: {
     : draft;
 
   const chat = (
-    <div className="chat">
-      <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
-        {summary && !props.compact ? (
-          <SummaryView items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} />
-        ) : (
-          <Transcript items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} />
-        )}
-      </ReplyContext.Provider>
+    <div className={`chat ${compacting ? "compacting" : ""}`}>
+      <RunContext.Provider value={runInTerminal}>
+        <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
+          {summary && !props.compact ? (
+            <SummaryView items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} compacting={compacting} />
+          ) : (
+            <Transcript items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} compacting={compacting} />
+          )}
+        </ReplyContext.Provider>
+      </RunContext.Provider>
+      {compacting && (
+        <div className="compact-fx" aria-hidden="true">
+          <FolderIcon />
+        </div>
+      )}
       <div className="dock">
         {current?.error && <div className="banner err">{current.error}</div>}
         {todos && todos.some((t) => t.status !== "completed") && (
@@ -334,6 +446,8 @@ export function SessionView(props: {
           onSend={(t, a) => void send(t, a)}
           onError={props.onToast}
           onStop={() => current && socket.send({ t: "interrupt", key: current.key })}
+          onStatusReport={view.sessionId && !props.compact ? statusReport : undefined}
+          onCompact={view.sessionId && !props.compact ? compact : undefined}
           draftKey={view.sessionId ?? view.id}
         />
       </div>
@@ -360,7 +474,7 @@ export function SessionView(props: {
             </button>
           )}
           <div className="topbar-title">
-            <div className="title">{info?.customTitle || info?.summary || "New session"}</div>
+            <div className="title">{info?.customTitle || info?.summary || view.initialTitle || "New session"}</div>
             <div className="muted small mono">
               {parent && <span title="Started from this session">⑃ {parent.customTitle || parent.summary} · </span>}
               {view.cwd}
@@ -380,6 +494,11 @@ export function SessionView(props: {
               <Icon />
             </button>
           ))}
+          {view.sessionId && (
+            <button className="icon-btn" onClick={restart} title="Restart this session's process (keeps the conversation)" aria-label="Restart session">
+              <RestartIcon />
+            </button>
+          )}
           {props.onClose && (
             <button className="icon-btn" onClick={props.onClose} title="Close this split" aria-label="Close this split">
               <CloseIcon />
@@ -446,6 +565,7 @@ export function SessionView(props: {
                 onOpenPane={(k) => (k === "files" && setOpenFile(undefined), setPane(k))}
                 onOpenSettings={props.onOpenSettings}
                 onToast={props.onToast}
+                onRunInTerminal={runInTerminal}
               />
             </aside>
           )}

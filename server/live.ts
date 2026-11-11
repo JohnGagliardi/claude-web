@@ -10,6 +10,13 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { runReauth } from "./reauth.js";
+
+// Matches the specific "aws sso login" expired-token failure, not AWS errors
+// generally — a different AWS failure wouldn't be fixed by reauthing, and
+// retrying it blindly would just burn a turn for no reason.
+const AWS_SSO_EXPIRED = /could not load aws credentials/i;
+const AWS_TOKEN_EXPIRED = /token is expired/i;
 
 // Push-based async iterable: the SDK pulls user turns from it for as long as the
 // session lives, so one Claude Code process serves the whole conversation.
@@ -110,6 +117,9 @@ export class LiveSession {
   effort?: EffortLevel;
   appliedEffort?: EffortLevel | null;
   remote?: RemoteState;
+  // Caps the AWS-SSO-expiry auto-recovery (below) at one attempt per live
+  // process, so a reauth that doesn't actually fix it can't retry forever.
+  private awsReauthTried = false;
   // Messages seen since this process started, replayed to late subscribers.
   readonly log: SDKMessage[] = [];
   private readonly input = new InputQueue();
@@ -205,6 +215,7 @@ export class LiveSession {
         if (msg.type === "result") {
           this.running = false;
           this.changed();
+          if (msg.is_error) this.maybeRecoverFromAwsSsoExpiry(msg);
         }
         if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
           this.backgroundTasks = msg.tasks.filter((t) => !t.ambient).length;
@@ -223,6 +234,18 @@ export class LiveSession {
     } finally {
       this.emit({ t: "closed", key: this.key, sessionId: this.sessionId });
     }
+  }
+
+  // "aws sso login" expiring mid-session is the one failure a plain retry
+  // can't fix on its own (reauth is required first) but also can't ever
+  // fail to fix if reauth itself works — worth recovering from automatically
+  // rather than making the user notice, re-auth, and retry by hand.
+  private maybeRecoverFromAwsSsoExpiry(msg: { errors?: string[]; result?: string }) {
+    if (this.awsReauthTried) return;
+    const text = msg.errors?.join("; ") || msg.result || "";
+    if (!AWS_SSO_EXPIRED.test(text) || !AWS_TOKEN_EXPIRED.test(text)) return;
+    this.awsReauthTried = true;
+    void runReauth().then(() => this.send("try again"));
   }
 
   // Plain text, or content blocks when the user attached images or documents.

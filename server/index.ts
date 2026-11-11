@@ -623,6 +623,13 @@ wss.on("connection", (ws) => {
               if (id) updateSessionMeta(id, { parent: m.resume, sideChat: true, cwd });
               broadcast({ t: "sessions-changed" });
             });
+          // A brand-new top-level session starts pinned, so it doesn't get lost
+          // under older sessions right after being created.
+          else if (!m.resume)
+            void session.sessionIdReady().then((id) => {
+              if (id) updateSessionMeta(id, { pinned: true });
+              broadcast({ t: "sessions-changed" });
+            });
           if (m.content || m.text) session.send(m.content ?? m.text);
           break;
         }
@@ -670,6 +677,9 @@ wss.on("connection", (ws) => {
           break;
         case "term:resize":
           terminals.resize(m.id, m.cols, m.rows);
+          break;
+        case "term:title":
+          terminals.setTitle(m.id, m.title);
           break;
         case "term:attach":
           ws.send(JSON.stringify({ t: "term:replay", id: m.id, data: terminals.scrollback(m.id) }));

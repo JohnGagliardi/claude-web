@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Effort, ModelInfo, PermissionMode, SlashCommand } from "../api";
+import { FolderIcon, ReportIcon } from "./Icons";
 import { stored, store, unstore } from "../storage";
 
 const MODES: [PermissionMode, string][] = [
@@ -189,6 +190,8 @@ export function Composer(props: {
   onSettings: (s: Partial<ComposerSettings>) => void;
   onSend: (text: string, attachments: Attachment[]) => void;
   onStop: () => void;
+  onStatusReport?: () => void;
+  onCompact?: () => void;
   onError: (message: string) => void;
   // Unsent text is saved under this key, so it survives switching sessions.
   draftKey?: string;
@@ -401,6 +404,16 @@ export function Composer(props: {
             e.target.value = "";
           }}
         />
+        {props.onStatusReport && (
+          <button className="icon-btn big" title="Ask Claude for a status report" onClick={props.onStatusReport}>
+            <ReportIcon />
+          </button>
+        )}
+        {props.onCompact && (
+          <button className="icon-btn big" title="Compact the conversation (frees up context)" onClick={props.onCompact}>
+            <FolderIcon />
+          </button>
+        )}
         <select value={props.settings.permissionMode} onChange={(e) => props.onSettings({ permissionMode: e.target.value as PermissionMode })}>
           {MODES.map(([v, l]) => (
             <option key={v} value={v}>{l}</option>

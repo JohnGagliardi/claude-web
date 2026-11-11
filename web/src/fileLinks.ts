@@ -11,3 +11,7 @@ export const useSession = () => useContext(SessionContext);
 // Lets next-step buttons in the transcript answer as the user.
 export const ReplyContext = createContext<{ send?: (text: string) => void; running: boolean }>({ running: false });
 export const useReply = () => useContext(ReplyContext);
+
+// Lets a shell command shown in the transcript run in the session's terminal pane.
+export const RunContext = createContext<((command: string) => void) | undefined>(undefined);
+export const useRunInTerminal = () => useContext(RunContext);

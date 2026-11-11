@@ -1,6 +1,7 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { LiveSummary, SessionInfo } from "../api";
+import { store, stored } from "../storage";
 
 // Worktree sessions are listed under the repo they came from.
 const repoOf = (cwd?: string) => (cwd ?? "").split(/[\\/]\.claude[\\/]worktrees[\\/]/)[0];
@@ -13,22 +14,46 @@ function ago(ms: number) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-export type SidebarItem = SessionInfo & { liveKey?: string; running?: boolean; needsYou?: boolean; depth?: number };
+export type SidebarItem = SessionInfo & {
+  liveKey?: string;
+  running?: boolean;
+  needsYou?: boolean;
+  depth?: number;
+  // Set only for the placeholder row of a pane that's open but hasn't sent
+  // its first message yet — there's no sessionId or liveKey to identify it
+  // by, since nothing exists server-side for it yet. Holds that pane's own
+  // (client-generated) id instead.
+  draftId?: string;
+};
 
 export function Sidebar(props: {
   sessions: SessionInfo[];
   live: LiveSummary[];
-  selected: { sessionId?: string; liveKey?: string }[];
+  selected: { id?: string; sessionId?: string; liveKey?: string; cwd?: string; initialTitle?: string }[];
   onSplit: (s: SidebarItem) => void;
   footer?: React.ReactNode;
   onNew: () => void;
   onSelect: (s: SidebarItem) => void;
   onMeta: (s: SidebarItem, patch: Record<string, unknown>) => void;
   onDelete: (s: SidebarItem) => void;
+  // Title for a brand-new session that hasn't written its first transcript
+  // entry yet, keyed by its live key — what the user typed in the New
+  // session modal, before the SDK has a persisted summary to report.
+  pendingTitles?: Record<string, string>;
 }) {
   const [q, setQ] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; s: SidebarItem } | null>(null);
+  const [collapsed, setCollapsed] = useState<{ pinned: boolean; rest: boolean }>(() => ({
+    pinned: stored("sidebar.collapsed.pinned") === "1",
+    rest: stored("sidebar.collapsed.rest") === "1",
+  }));
+  const toggleGroup = (g: "pinned" | "rest") =>
+    setCollapsed((c) => {
+      const next = { ...c, [g]: !c[g] };
+      store(`sidebar.collapsed.${g}`, next[g] ? "1" : "");
+      return next;
+    });
 
   useEffect(() => {
     if (!menu) return;
@@ -53,14 +78,31 @@ export function Sidebar(props: {
       if (!l.sessionId || !props.sessions.some((s) => s.sessionId === l.sessionId)) {
         list.unshift({
           sessionId: l.sessionId ?? "",
-          summary: "New session",
+          summary: props.pendingTitles?.[l.key] || "New session",
           lastModified: Date.now(),
           cwd: l.cwd,
           liveKey: l.key,
           running: l.running,
           needsYou: !!l.pending.length,
+          // Newly created sessions auto-pin server-side; show that immediately
+          // instead of waiting on the first turn's sessions-changed refresh.
+          pinned: true,
         });
       }
+    }
+    // Open panes that haven't sent a first message at all yet — nothing
+    // exists server-side for these (no sessionId, no live Query), so they
+    // can't come from props.sessions or props.live like the ones above.
+    for (const v of props.selected) {
+      if (!v.id || v.sessionId || v.liveKey) continue;
+      list.unshift({
+        sessionId: "",
+        draftId: v.id,
+        summary: v.initialTitle || "New session",
+        lastModified: Date.now(),
+        cwd: v.cwd ?? "",
+        pinned: true,
+      });
     }
     const needle = q.trim().toLowerCase();
     return list.filter(
@@ -68,7 +110,7 @@ export function Sidebar(props: {
         !!s.archived === showArchived &&
         (!needle || `${s.customTitle ?? ""} ${s.summary} ${s.cwd ?? ""}`.toLowerCase().includes(needle)),
     );
-  }, [props.sessions, props.live, q, showArchived]);
+  }, [props.sessions, props.live, props.selected, q, showArchived]);
 
   const byRecency = (a: SidebarItem, b: SidebarItem) => b.lastModified - a.lastModified;
   const pinned = items.filter((s) => s.pinned).sort(byRecency);
@@ -86,11 +128,16 @@ export function Sidebar(props: {
   };
 
   const isSel = (s: SidebarItem) =>
-    props.selected.some((v) => (!!s.sessionId && s.sessionId === v.sessionId) || (!!s.liveKey && s.liveKey === v.liveKey));
+    props.selected.some(
+      (v) =>
+        (!!s.sessionId && s.sessionId === v.sessionId) ||
+        (!!s.liveKey && s.liveKey === v.liveKey) ||
+        (!!s.draftId && s.draftId === v.id),
+    );
 
   const row = (s: SidebarItem) => (
     <div
-      key={s.liveKey ?? s.sessionId}
+      key={s.liveKey ?? s.sessionId ?? s.draftId}
       className={`session ${isSel(s) ? "sel" : ""} ${s.pinned ? "pinned" : ""}`}
       style={s.depth ? { paddingLeft: 8 + s.depth * 14 } : undefined}
       onClick={(e) => (e.ctrlKey || e.metaKey ? props.onSplit(s) : props.onSelect(s))}
@@ -104,7 +151,7 @@ export function Sidebar(props: {
 Ctrl+click to open in split view · Right-click for options`}
     >
       {!!s.depth && <span className="wt">⑃</span>}
-      <span className={`status ${s.needsYou ? "needs" : s.running ? "running" : s.unread ? "unread" : ""}`} />
+      <span className={`status ${s.needsYou ? "needs" : s.running ? "running" : s.unread ? "unread" : ""}`} title={s.needsYou ? "Blocked — waiting for your answer" : undefined} />
       <span className="title">{s.customTitle || s.summary || s.firstPrompt || "Untitled"}</span>
       {repoOf(s.cwd) !== (s.cwd ?? "") && <span className="wt" title="Runs in its own worktree">⑂</span>}
       <span className="when">{ago(s.lastModified)}</span>
@@ -154,13 +201,21 @@ Ctrl+click to open in split view · Right-click for options`}
       <div className="session-list">
         {pinned.length > 0 && (
           <div className="group">
-            <div className="group-head">Pinned</div>
-            {nest(pinned).map(row)}
+            <button className="group-head" onClick={() => toggleGroup("pinned")}>
+              <span className={`chev ${collapsed.pinned ? "closed" : ""}`}>▾</span>
+              Pinned
+              <span className="count">{pinned.length}</span>
+            </button>
+            {!collapsed.pinned && nest(pinned).map(row)}
           </div>
         )}
         <div className="group">
-          <div className="group-head">{showArchived ? "Archived" : "Sessions"}</div>
-          {nest(rest).map(row)}
+          <button className="group-head" onClick={() => toggleGroup("rest")}>
+            <span className={`chev ${collapsed.rest ? "closed" : ""}`}>▾</span>
+            {showArchived ? "Archived" : "Sessions"}
+            <span className="count">{rest.length}</span>
+          </button>
+          {!collapsed.rest && nest(rest).map(row)}
         </div>
         {items.length === 0 && <div className="muted pad">No sessions</div>}
       </div>

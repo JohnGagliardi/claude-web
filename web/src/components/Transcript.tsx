@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Item } from "../transcript";
 import { buildItems, groupSummary, isAgentTool, toolLabel, toolSummary } from "../transcript";
 import { api, q, type RawMsg } from "../api";
@@ -175,7 +175,7 @@ function ToolGroup({ items }: { items: Item[] }) {
   return (
     <div className="tool-group">
       <button className="group-line" onClick={() => setOpen(!shown)}>
-        <span className={`dot ${running ? "running" : failed ? "error" : ""}`} />
+        <span className={`dot ${running ? "running" : failed ? "error" : "ok"}`} />
         <span>{groupSummary(tools)}</span>
         {failed > 0 && <span className="err small">{failed} failed</span>}
         <span className="chev">{shown ? "▾" : "▸"}</span>
@@ -319,12 +319,50 @@ export function WrapUp({ item }: { item: Extract<Item, { kind: "wrap" }> }) {
   );
 }
 
+// Each picked message gets a transform-origin pointing at the folder icon's
+// own position (the chat's center) rather than its own center, computed
+// from live geometry since every message sits somewhere different —
+// scaling toward that off-element point is what makes it look like it
+// flies into the folder instead of just shrinking in place. Shared by
+// Transcript and SummaryView, since either can be the view mode on screen
+// when the Compact button is clicked.
+export function useCompactFx(active: boolean | undefined, box: RefObject<HTMLDivElement | null>, inner: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const root = inner.current;
+    const scroller = box.current;
+    if (!active || !root || !scroller) return;
+    const target = scroller.getBoundingClientRect();
+    const targetX = target.left + target.width / 2;
+    const targetY = target.top + target.height / 2;
+    const picked = Array.from(root.children)
+      .filter((el): el is HTMLElement => el instanceof HTMLElement)
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; })
+      .slice(-10);
+    picked.forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      el.style.setProperty("--fx-origin-x", `${targetX - r.left}px`);
+      el.style.setProperty("--fx-origin-y", `${targetY - r.top}px`);
+      el.style.setProperty("--fx-delay", `${i * 55}ms`);
+      el.classList.add("compact-item");
+    });
+    return () => {
+      for (const el of picked) {
+        el.classList.remove("compact-item");
+        el.style.removeProperty("--fx-origin-x");
+        el.style.removeProperty("--fx-origin-y");
+        el.style.removeProperty("--fx-delay");
+      }
+    };
+  }, [active]);
+}
+
 export function Transcript({
   items,
   partial,
   running,
   tokens,
   pendingCount,
+  compacting,
 }: {
   items: Item[];
   partial: string;
@@ -335,14 +373,20 @@ export function Transcript({
   // triggering a re-scroll, which can leave a new prompt looking like it
   // landed on top of whatever was last visible. Re-stick to the bottom then too.
   pendingCount: number;
+  // Purely cosmetic: while true, the last few messages fly into the Compact
+  // button's folder icon one by one (see .compact-item in styles.css).
+  compacting?: boolean;
 }) {
   const end = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
   useEffect(() => {
     if (stick.current) end.current?.scrollIntoView({ block: "end" });
   }, [items, partial, pendingCount]);
+
+  useCompactFx(compacting, box, inner);
 
   return (
     <div
@@ -353,7 +397,7 @@ export function Transcript({
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       }}
     >
-      <div className="transcript-inner">
+      <div className="transcript-inner" ref={inner}>
         <ItemList items={items} group />
         {partial && <Markdown text={partial} />}
         {!partial && <WorkingIndicator running={running} tokens={tokens} />}
@@ -433,7 +477,9 @@ function ItemList({ items, group }: { items: Item[]; group?: boolean }) {
             case "tool":
               return <ToolCard key={it.id} item={it} />;
             case "result":
-              return <div key={it.id} className={`result ${it.ok ? "" : "err"}`}>{it.text}</div>;
+              // A successful "Done in Xs" line carries no information a reader needs;
+              // only a failure ("Stopped: …") is worth a line here.
+              return it.ok ? null : <div key={it.id} className="result err">{it.text}</div>;
             case "system":
               return <div key={it.id} className="result">{it.text}</div>;
           }

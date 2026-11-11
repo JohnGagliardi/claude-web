@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, socket, type Bootstrap, type LiveSummary } from "./api";
 import { Sidebar, type SidebarItem } from "./components/Sidebar";
 import { NewSessionModal } from "./components/NewSessionModal";
@@ -175,6 +175,17 @@ export function App() {
 
   const fromItem = (s: SidebarItem): Omit<View, "id"> => ({ sessionId: s.sessionId || undefined, liveKey: s.liveKey, cwd: s.cwd ?? boot?.home ?? "" });
 
+  // The sidebar's placeholder row for a pane that hasn't sent a first message
+  // yet has no sessionId/liveKey to match against — it's keyed by that pane's
+  // own id instead, so just focus it directly rather than going through
+  // open()'s sessionId/liveKey matching (which would always miss and create
+  // a duplicate blank pane).
+  const focusDraft = (draftId: string) => {
+    setPanel(null);
+    const at = panes.findIndex((p) => p.id === draftId);
+    if (at >= 0) setFocus(at);
+  };
+
   const notifications = useNotifications(boot, panes, (sessionId, liveKey) => {
     const s = boot?.sessions.find((x) => x.sessionId === sessionId);
     open({ sessionId, liveKey, cwd: s?.cwd ?? findLive(boot?.live ?? [], { sessionId, liveKey })?.cwd ?? boot?.home ?? "" });
@@ -214,6 +225,11 @@ export function App() {
 
   const useWorktree = !!boot?.settings.newSessionWorktree;
 
+  const pendingTitles = useMemo(
+    () => Object.fromEntries(panes.filter((p): p is View & { liveKey: string; initialTitle: string } => !!p.liveKey && !!p.initialTitle).map((p) => [p.liveKey, p.initialTitle])),
+    [panes],
+  );
+
   const startNewSession = (opts: { cwd: string; name: string; worktree: boolean }) => {
     setNewCwd(opts.cwd);
     setNewSessionOpen(false);
@@ -250,12 +266,13 @@ export function App() {
         sessions={boot.sessions.filter((s) => !s.sideChat)}
         live={boot.live.filter((l) => !l.sideChat)}
         selected={panes}
+        pendingTitles={pendingTitles}
         onNew={() => {
           setPanel(null);
           setNewSessionOpen(true);
         }}
-        onSelect={(s) => open(fromItem(s))}
-        onSplit={(s) => open(fromItem(s), true)}
+        onSelect={(s) => (s.draftId ? focusDraft(s.draftId) : open(fromItem(s)))}
+        onSplit={(s) => (s.draftId ? focusDraft(s.draftId) : open(fromItem(s), true))}
         onMeta={(s, patch) => void api(`/sessions/${s.sessionId}/meta`, { json: patch }).catch((e) => setToast(e.message))}
         onDelete={(s) => {
           if (confirm(`Permanently delete "${s.customTitle || s.summary}"? This removes the transcript file.`))

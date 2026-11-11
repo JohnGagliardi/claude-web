@@ -82,6 +82,7 @@ export function InfoPane(props: {
   onOpenPane: (pane: "changes" | "files") => void;
   onOpenSettings?: () => void;
   onToast: (t: string) => void;
+  onRunInTerminal: (command: string) => void;
 }) {
   const { live, log } = props;
   const [info, setInfo] = useState<Info | null>(null);
@@ -120,8 +121,10 @@ export function InfoPane(props: {
 
   const ctx = info && !failed(info.context) ? info.context : undefined;
   const servers = info && !failed(info.mcp) ? info.mcp.filter((s) => !INTERNAL_SERVERS.has(s.name)) : undefined;
-  // Only connected servers, as in the desktop app.
+  // Connected servers list the way the desktop app does; anything else is
+  // surfaced too (with its error), since /mcp can't show that detail here.
   const connected = servers?.filter((s) => s.status === "connected") ?? [];
+  const notConnected = servers?.filter((s) => s.status !== "connected") ?? [];
   // Largest first, then the compaction buffer, then free space.
   const inWindow = (ctx?.categories.filter((c) => c.kind !== "deferred") ?? []).sort(
     (a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || b.tokens - a.tokens,
@@ -231,15 +234,30 @@ export function InfoPane(props: {
           <div className="muted">Shows while the session is running.</div>
         ) : !servers ? (
           <div className="muted">{info && failed(info.mcp) ? info.mcp.error : "Loading…"}</div>
-        ) : connected.length === 0 ? (
+        ) : servers.length === 0 ? (
           <div className="muted">No connectors.</div>
         ) : (
-          connected.map((s) => (
-            <div key={s.name} className="env-row">
-              <span className="conn-tile">{s.name.replace(/^claude\.ai /, "")[0]?.toUpperCase()}</span>
-              <span className="env-name">{s.name.replace(/^claude\.ai /, "")}</span>
-            </div>
-          ))
+          <>
+            {connected.map((s) => (
+              <div key={s.name} className="env-row">
+                <span className="conn-tile">{s.name.replace(/^claude\.ai /, "")[0]?.toUpperCase()}</span>
+                <span className="env-name">{s.name.replace(/^claude\.ai /, "")}</span>
+              </div>
+            ))}
+            {notConnected.map((s) => (
+              <div key={s.name} className="env-row" title={s.error}>
+                <span className="conn-tile off">{s.name.replace(/^claude\.ai /, "")[0]?.toUpperCase()}</span>
+                <span className="env-name">
+                  {s.name.replace(/^claude\.ai /, "")} <span className="muted small">· {s.error || s.status}</span>
+                </span>
+              </div>
+            ))}
+            {notConnected.length > 0 && (
+              <button className="link small conn-check" onClick={() => props.onRunInTerminal("claude mcp list")}>
+                <TerminalIcon /> Check in terminal
+              </button>
+            )}
+          </>
         )}
       </Card>
 

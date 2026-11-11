@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 
 import type { Item } from "../transcript";
 import { groupSummary, toolLabel, toolSummary } from "../transcript";
 import { Markdown } from "./Markdown";
-import { Compacted, UserText, WorkingIndicator, WrapUp } from "./Transcript";
+import { Compacted, UserText, WorkingIndicator, WrapUp, useCompactFx } from "./Transcript";
 import { useOpenFile, useSession } from "../fileLinks";
 
 type ToolItem = Extract<Item, { kind: "tool" }>;
@@ -201,13 +201,31 @@ function TurnView({ turn, live, tokens, partial }: { turn: Turn; live: boolean; 
 
 // The reading view: each exchange as the prompt, then what Claude had to say
 // about it, with the tool work folded into one line.
-export function SummaryView({ items, partial, running, tokens, pendingCount }: { items: Item[]; partial: string; running: boolean; tokens: number; pendingCount: number }) {
+export function SummaryView({
+  items,
+  partial,
+  running,
+  tokens,
+  pendingCount,
+  compacting,
+}: {
+  items: Item[];
+  partial: string;
+  running: boolean;
+  tokens: number;
+  pendingCount: number;
+  // Purely cosmetic: while true, the last few turns fly into the Compact
+  // button's folder icon one by one (see useCompactFx / .compact-item).
+  compacting?: boolean;
+}) {
   const end = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   useEffect(() => {
     if (stick.current) end.current?.scrollIntoView({ block: "end" });
   }, [items, partial, pendingCount]);
+  useCompactFx(compacting, box, inner);
   const turns = splitTurns(items);
   return (
     <div
@@ -218,7 +236,7 @@ export function SummaryView({ items, partial, running, tokens, pendingCount }: {
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       }}
     >
-      <div className="transcript-inner sum-inner">
+      <div className="transcript-inner sum-inner" ref={inner}>
         {turns.map((t, i) => (
           <TurnView key={t.id} turn={t} live={running && i === turns.length - 1} tokens={tokens} partial={partial} />
         ))}

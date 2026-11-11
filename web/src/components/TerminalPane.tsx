@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { socket, type TerminalInfo } from "../api";
 
@@ -14,9 +15,10 @@ function XTerm({ id }: { id: string }) {
   const host = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const term = new Terminal({ fontFamily: "Cascadia Code, Consolas, monospace", fontSize: 13, theme: theme(), scrollback: 5000 });
+    const term = new Terminal({ fontFamily: "Cascadia Code, Consolas, monospace", fontSize: 13, theme: theme(), scrollback: 5000, cursorBlink: true });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon());
     term.open(host.current!);
     let replayed = false;
     const pending: string[] = [];
@@ -33,6 +35,9 @@ function XTerm({ id }: { id: string }) {
     });
     socket.send({ t: "term:attach", id });
     const input = term.onData((data) => socket.send({ t: "term:input", id, data }));
+    // Whatever's running sets this via an OSC escape sequence, same as any
+    // real terminal's tab title (e.g. the shell's cwd, or "vim file.ts").
+    const titleChange = term.onTitleChange((title) => socket.send({ t: "term:title", id, title }));
     const resize = () => {
       try {
         fit.fit();
@@ -46,12 +51,24 @@ function XTerm({ id }: { id: string }) {
     return () => {
       ro.disconnect();
       input.dispose();
+      titleChange.dispose();
       off();
       term.dispose();
     };
   }, [id]);
 
-  return <div className="xterm-host" ref={host} />;
+  // FitAddon sizes rows/cols off this element's own getComputedStyle height/
+  // width, assuming content-box semantics — with this project's global
+  // `box-sizing: border-box`, padding directly on it would get counted as
+  // usable space it isn't, causing the terminal to overflow and get clipped
+  // by the pane's overflow:hidden. Padding lives on the wrapper instead, and
+  // this element (the one xterm actually measures and mounts into) stays
+  // padding-free so the row math exactly matches what's actually available.
+  return (
+    <div className="xterm-pad">
+      <div className="xterm-host" ref={host} />
+    </div>
+  );
 }
 
 export function TerminalPane(props: {

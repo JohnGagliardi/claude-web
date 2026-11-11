@@ -41,7 +41,9 @@ export class Terminals {
       cols: opts.cols ?? 100,
       rows: opts.rows ?? 30,
       cwd: cwd || os.homedir(),
-      env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
+      // COLORTERM is what modern CLI tools (bat, delta, eza, lazygit, …) check
+      // to decide whether to emit 24-bit color instead of falling back to 16.
+      env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" } as Record<string, string>,
     });
     const id = randomUUID().slice(0, 8);
     const term: Term = { id, title: opts.title ?? `Terminal ${++this.counter}`, cwd, alive: true, byClaude: opts.byClaude, proc, buffer: "" };
@@ -71,6 +73,15 @@ export class Terminals {
   resize(id: string, cols: number, rows: number) {
     const t = this.terms.get(id);
     if (t?.alive && cols > 0 && rows > 0) t.proc.resize(cols, rows);
+  }
+
+  // The shell (or whatever's running in it) sets this via an OSC escape
+  // sequence, same as any real terminal's tab title.
+  setTitle(id: string, title: string) {
+    const t = this.terms.get(id);
+    if (!t || t.title === title) return;
+    t.title = title;
+    this.changed();
   }
 
   scrollback(id: string) {
