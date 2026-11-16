@@ -116,6 +116,13 @@ export const q = (params: Record<string, string | undefined>) =>
 
 export type BrowseResult = { path: string; parent: string | null; entries: string[] };
 
+export type UsageSummary = {
+  total: number;
+  since: number;
+  firstEventAt?: number;
+  top: { action: string; area?: string; count: number; last: number }[];
+};
+
 export type ModelInfo = { value: string; resolvedModel?: string; displayName: string; description: string; supportsEffort?: boolean };
 export type SlashCommand = { name: string; description: string; argumentHint: string };
 // defaults: what an unset model and effort resolve to.

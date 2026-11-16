@@ -43,17 +43,20 @@ function XTerm({ id }: { id: string }) {
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(host.current!);
+    // The server's replay buffer and its live term:data broadcasts are
+    // appended/sent from the same synchronous onData callback (see
+    // Terminals.open in server/terminals.ts), so any term:data for this id
+    // that reaches us before the term:attach round-trip completes is, by
+    // construction, already included in the replay snapshot — write it once,
+    // from whichever arrives, never both.
     let replayed = false;
-    const pending: string[] = [];
     const off = socket.on((m) => {
       if (m.id !== id) return;
       if (m.t === "term:replay") {
         term.write(m.data);
-        for (const d of pending.splice(0)) term.write(d);
         replayed = true;
-      } else if (m.t === "term:data") {
-        if (replayed) term.write(m.data);
-        else pending.push(m.data);
+      } else if (m.t === "term:data" && replayed) {
+        term.write(m.data);
       }
     });
     socket.send({ t: "term:attach", id });

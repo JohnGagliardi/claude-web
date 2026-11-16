@@ -27,6 +27,7 @@ import { closeBrowser, closeTab } from "./browser.js";
 import { READ_ONLY_TOOLS, SERVER_NAME, sessionTools, type SideArgs } from "./tools.js";
 import { Scheduler } from "./schedules.js";
 import { fullHistory } from "./history.js";
+import { clear as clearUsage, summary as usageSummary, track as trackUsage } from "./usage.js";
 
 const PORT = Number(process.env.PORT ?? readConfig().port ?? 3737);
 const DEV_PORT = 5173;
@@ -539,6 +540,11 @@ api.post("/settings", (req, res) => {
   broadcast({ t: "settings", settings: next });
   res.json(next);
 });
+api.get("/usage", (req, res) => res.json(usageSummary(Number(req.query.days) || 30)));
+api.post("/usage/clear", (_req, res) => {
+  clearUsage();
+  res.json({ ok: true });
+});
 
 // Read-only check of the credentials Claude Code will use on this device.
 api.get("/auth-status", (_req, res) => {
@@ -662,6 +668,11 @@ wss.on("connection", (ws) => {
           break;
         case "close":
           s?.close();
+          break;
+        // Fire-and-forget click tracking (see useClickTracking) — not tied to
+        // any particular session, so no `s` lookup and no reply.
+        case "track":
+          trackUsage(String(m.action ?? ""), typeof m.area === "string" ? m.area : undefined, m.ts);
           break;
         // Branches a new session from a past point in this one's transcript
         // (forkSession slices the conversation there, inclusive), leaving the

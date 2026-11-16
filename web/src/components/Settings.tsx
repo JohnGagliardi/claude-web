@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
-import { api, defaultModelName, pickableModels, q, type AppSettings, type Bootstrap, type Catalog, type Effort, type PermissionMode } from "../api";
+import { api, defaultModelName, pickableModels, q, type AppSettings, type Bootstrap, type Catalog, type Effort, type PermissionMode, type UsageSummary } from "../api";
 import { BackIcon } from "./Icons";
+
+// "2h ago" / "3d ago" — coarse is fine, this is just "when did I last do this".
+function relTime(ts: number) {
+  const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
 
 const MODES: [PermissionMode, string][] = [
   ["default", "Ask permissions"],
@@ -27,10 +37,14 @@ export function Settings({
   const models = pickableModels(catalog.models);
   const defaultModel = defaultModelName(catalog);
   const [auth, setAuth] = useState<string | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
 
   useEffect(() => {
     void api<Catalog>(`/catalog${q({ cwd: boot.home })}`).then(setCatalog).catch(() => {});
   }, [boot.home]);
+
+  const loadUsage = () => void api<UsageSummary>("/usage").then(setUsage).catch(() => {});
+  useEffect(loadUsage, []);
 
   const save = (patch: Partial<AppSettings>) => void api("/settings", { json: patch }).catch((e) => onToast(e.message));
 
@@ -126,6 +140,47 @@ export function Settings({
           </button>
         </div>
         {auth && <pre className="auth-out">{auth}</pre>}
+      </section>
+
+      <section>
+        <h3>Usage</h3>
+        <p className="muted small">
+          What you click most, last 30 days — meant to surface which parts of the app earn their keep and which don't. Tracked locally only;
+          nothing leaves this device.
+        </p>
+        {usage && usage.top.length > 0 ? (
+          <>
+            <div className="kv">
+              <span className="muted">Clicks tracked</span>
+              <span>
+                {usage.total}
+                {usage.firstEventAt ? ` since ${new Date(usage.firstEventAt).toLocaleDateString()}` : ""}
+              </span>
+            </div>
+            <div className="usage-list">
+              {usage.top.slice(0, 20).map((row) => (
+                <div key={`${row.area ?? ""}:${row.action}`} className="usage-row">
+                  <span className="usage-count">{row.count}</span>
+                  <span className="usage-action">{row.action}</span>
+                  {row.area && <span className="chip">{row.area}</span>}
+                  <span className="muted small usage-last">{relTime(row.last)}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="muted small">Nothing tracked yet — click around and check back.</p>
+        )}
+        <div className="row">
+          <button onClick={loadUsage}>Refresh</button>
+          <button
+            onClick={() => {
+              if (confirm("Clear all tracked usage data?")) void api("/usage/clear", { method: "POST" }).then(loadUsage).catch((e) => onToast(e.message));
+            }}
+          >
+            Clear
+          </button>
+        </div>
       </section>
     </div>
   );
