@@ -263,8 +263,13 @@ export function App() {
       <div className="app-body">
       {!railHidden && (
       <Sidebar
-        sessions={boot.sessions.filter((s) => !s.sideChat)}
-        live={boot.live.filter((l) => !l.sideChat)}
+        // Side chats used to be hidden here entirely — once their pane was
+        // closed or replaced (e.g. by switching to a different session),
+        // there was no way back to them at all. Showing them lets Sidebar's
+        // own nest() group them under their parent (see Sidebar.tsx), same
+        // as an MCP-started side session.
+        sessions={boot.sessions}
+        live={boot.live}
         selected={panes}
         pendingTitles={pendingTitles}
         onNew={() => {
