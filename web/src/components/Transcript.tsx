@@ -3,7 +3,7 @@ import type { Item } from "../transcript";
 import { buildItems, groupSummary, isAgentTool, toolLabel, toolSummary } from "../transcript";
 import { api, q, type RawMsg } from "../api";
 import { Markdown } from "./Markdown";
-import { useOpenFile, useReply, useSession } from "../fileLinks";
+import { useOpenFile, useReply, useRewind, useSession } from "../fileLinks";
 
 const LIMIT = 4000;
 
@@ -107,7 +107,7 @@ function AgentCard({ item }: { item: Extract<Item, { kind: "tool" }> }) {
           )}
           {nested.length > 0 ? (
             <div className="nested">
-              <ItemList items={nested} />
+              <ItemList items={nested} nested />
             </div>
           ) : (
             <div className="muted small">{item.result ? (item.agentId && sessionId && !stored ? "Loading…" : "No transcript available.") : "Working…"}</div>
@@ -269,6 +269,22 @@ export function Compacted({ summary }: { summary?: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+// Item/message ids fall back to "m<index>" or "local-<timestamp>" when a real
+// transcript uuid isn't known yet (not yet persisted, or synthesized); only a
+// real one is a valid fork point, so the button just doesn't render for those.
+const REAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Branches a new session from this point in the conversation (see RewindContext).
+export function RewindButton({ id }: { id: string }) {
+  const rewind = useRewind();
+  if (!rewind || !REAL_UUID.test(id)) return null;
+  return (
+    <button className="link small msg-rewind" title="Branch a new session from here, discarding everything after this message" onClick={() => rewind(id)}>
+      ⟲ Rewind here
+    </button>
   );
 }
 
@@ -436,7 +452,7 @@ function groupTools(items: Item[]): Block[] {
   return out;
 }
 
-function ItemList({ items, group }: { items: Item[]; group?: boolean }) {
+function ItemList({ items, group, nested }: { items: Item[]; group?: boolean; nested?: boolean }) {
   const blocks: Block[] = group ? groupTools(items) : items.filter((i) => !(i.kind === "tool" && i.hidden));
   return (
     <>
@@ -456,16 +472,19 @@ function ItemList({ items, group }: { items: Item[]; group?: boolean }) {
               return <WrapUp key={it.id} item={it} />;
             case "user":
               return (
-                <div key={it.id} className="user-msg">
-                  {it.images.length > 0 && (
-                    <div className="user-images">
-                      {it.images.map((src, i) => (
-                        <img key={i} src={src} alt="" />
-                      ))}
-                    </div>
-                  )}
-                  {it.documents > 0 && <div className="muted small">{it.documents} document(s) attached</div>}
-                  <UserText text={it.text} />
+                <div key={it.id} className="user-msg-row">
+                  <div className="user-msg">
+                    {it.images.length > 0 && (
+                      <div className="user-images">
+                        {it.images.map((src, i) => (
+                          <img key={i} src={src} alt="" />
+                        ))}
+                      </div>
+                    )}
+                    {it.documents > 0 && <div className="muted small">{it.documents} document(s) attached</div>}
+                    <UserText text={it.text} />
+                  </div>
+                  {!nested && <RewindButton id={it.id} />}
                 </div>
               );
             case "command":

@@ -8,7 +8,7 @@ import { PermissionCard, type Reply } from "./components/Permission";
 import { SidePane, parseFileRef, type OpenFile, type PaneKind } from "./components/SidePane";
 import { BackgroundTasks, InfoPane } from "./components/InfoPane";
 import { ChatIcon, CloseIcon, DiffIcon, FolderIcon, GlobeIcon, RailIcon, RestartIcon, TasksIcon, TerminalIcon } from "./components/Icons";
-import { OpenFileContext, ReplyContext, RunContext, SessionContext } from "./fileLinks";
+import { OpenFileContext, ReplyContext, RewindContext, RunContext, SessionContext } from "./fileLinks";
 import { stored, store } from "./storage";
 
 // forkOf: a side chat that branches off that session on its first message.
@@ -315,7 +315,11 @@ export function SessionView(props: {
       const go = (id: string) => {
         setTerminal(id);
         setPane("terminal");
-        socket.send({ t: "term:input", id, data: command + "\r" });
+        // term:run (not term:input) — typing the command's literal text would
+        // make the shell echo the whole thing back verbatim before running it,
+        // unreadable for anything long. The server drops it into a throwaway
+        // script and types just the short "bash '<path>'" line instead.
+        socket.send({ t: "term:run", id, command });
       };
       const existing = boot.terminals.find((t) => t.cwd === view.cwd && t.alive);
       if (existing) return go(existing.id);
@@ -370,6 +374,25 @@ export function SessionView(props: {
     socket.send({ t: "term:open", ref, cwd: view.cwd });
   }, [view.cwd]);
 
+  // A "Rewind here" click on a past message branches a new session from that
+  // point (forkSession slices the transcript there), leaving this session
+  // untouched. Opens beside it, like a side chat, so both stay visible.
+  const rewindTo = useCallback(
+    (uuid: string) => {
+      if (!view.sessionId) return;
+      const info = boot.sessions.find((s) => s.sessionId === view.sessionId);
+      const title = info?.customTitle || info?.summary || view.initialTitle;
+      const ref = crypto.randomUUID();
+      const off = socket.on((m) => {
+        if (m.t !== "started" || m.ref !== ref) return;
+        off();
+        props.onOpenSide({ liveKey: m.session.key, sessionId: m.session.sessionId, cwd: m.session.cwd });
+      });
+      socket.send({ t: "rewind", ref, sessionId: view.sessionId, cwd: view.cwd, uuid, title });
+    },
+    [view.sessionId, view.cwd, view.initialTitle, boot.sessions, props.onOpenSide],
+  );
+
   // The side chat forks this session, so it's created only once the session
   // has an id; opened earlier, the pane waits for the first message.
   useEffect(() => {
@@ -407,13 +430,15 @@ export function SessionView(props: {
   const chat = (
     <div className={`chat ${compacting ? "compacting" : ""}`}>
       <RunContext.Provider value={runInTerminal}>
-        <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
-          {summary && !props.compact ? (
-            <SummaryView items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} compacting={compacting} />
-          ) : (
-            <Transcript items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} compacting={compacting} />
-          )}
-        </ReplyContext.Provider>
+        <RewindContext.Provider value={view.sessionId ? rewindTo : undefined}>
+          <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
+            {summary && !props.compact ? (
+              <SummaryView items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} compacting={compacting} />
+            ) : (
+              <Transcript items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} compacting={compacting} />
+            )}
+          </ReplyContext.Provider>
+        </RewindContext.Provider>
       </RunContext.Provider>
       {compacting && (
         <div className="compact-fx" aria-hidden="true">

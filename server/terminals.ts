@@ -1,4 +1,6 @@
 import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import * as pty from "node-pty";
 
@@ -68,6 +70,17 @@ export class Terminals {
 
   write(id: string, data: string) {
     this.terms.get(id)?.proc.write(data);
+  }
+
+  // Typing a long/complex command straight into the pty makes the shell echo
+  // the whole literal string back before it runs — fine for a short command,
+  // unreadable for anything long or multi-part. Writing it to a throwaway
+  // script and running that instead means only a short "bash '<path>'" line
+  // ever appears, regardless of how long the actual command is.
+  runFile(id: string, command: string) {
+    const file = path.join(os.tmpdir(), `clyde-run-${randomUUID()}.sh`);
+    fs.writeFileSync(file, command, { mode: 0o700 });
+    this.write(id, `bash '${file}'; rm -f '${file}'\r`);
   }
 
   resize(id: string, cols: number, rows: number) {

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 
 import type { Item } from "../transcript";
 import { groupSummary, toolLabel, toolSummary } from "../transcript";
 import { Markdown } from "./Markdown";
-import { Compacted, UserText, WorkingIndicator, WrapUp, useCompactFx } from "./Transcript";
+import { Compacted, RewindButton, UserText, WorkingIndicator, WrapUp, useCompactFx } from "./Transcript";
 import { useOpenFile, useSession } from "../fileLinks";
 
 type ToolItem = Extract<Item, { kind: "tool" }>;
@@ -36,26 +36,16 @@ function answers(text: string): [string, string][] {
 
 type Step = { kind: "note"; id: string; text: string } | { kind: "tool"; id: string; item: ToolItem };
 
-function Activity({ steps, live, tokens, partial }: { steps: Step[]; live: boolean; tokens: number; partial: string }) {
+function Activity({ steps }: { steps: Step[] }) {
   const [open, setOpen] = useState(false);
   const tools = steps.filter((s): s is Extract<Step, { kind: "tool" }> => s.kind === "tool").map((s) => s.item);
-  const last = steps[steps.length - 1];
-  const current = partial || (last?.kind === "note" ? last.text : last ? stepLine(last.item) : "");
-  if (!live && !steps.length) return null;
+  if (!steps.length) return null;
   const summary = groupSummary(tools);
   return (
-    <div className={`sum-activity ${live ? "live" : ""}`}>
-      {live ? (
-        <>
-          <WorkingIndicator running tokens={tokens} />
-          {current && <div className="sum-current">{current.split("\n").filter(Boolean).slice(-2).join(" ")}</div>}
-        </>
-      ) : null}
-      {steps.length > 0 && (
-        <button className="link small sum-toggle" onClick={() => setOpen(!open)}>
-          {open ? "▾" : "▸"} {summary || `${steps.length} note${steps.length === 1 ? "" : "s"}`}
-        </button>
-      )}
+    <div className="sum-activity">
+      <button className="link small sum-toggle" onClick={() => setOpen(!open)}>
+        {open ? "▾" : "▸"} {summary || `${steps.length} note${steps.length === 1 ? "" : "s"}`}
+      </button>
       {open && (
         <ol className="sum-steps">
           {steps.map((s) =>
@@ -76,6 +66,21 @@ function Activity({ steps, live, tokens, partial }: { steps: Step[]; live: boole
 }
 
 const stepLine = (t: ToolItem) => `${toolLabel(t.name)} · ${toolSummary(t.name, t.input)}`;
+
+// Kept separate from Activity, and rendered last in the card (see TurnView),
+// so it's always the thing nearest the bottom — the whole point is that it
+// stays visible while the transcript auto-scrolls to the bottom, which a
+// large answer block above it would otherwise push out of view.
+function LiveStatus({ steps, tokens, partial }: { steps: Step[]; tokens: number; partial: string }) {
+  const last = steps[steps.length - 1];
+  const current = partial || (last?.kind === "note" ? last.text : last ? stepLine(last.item) : "");
+  return (
+    <div className="sum-activity live">
+      <WorkingIndicator running tokens={tokens} />
+      {current && <div className="sum-current">{current.split("\n").filter(Boolean).slice(-2).join(" ")}</div>}
+    </div>
+  );
+}
 
 function ChangedFiles({ tools }: { tools: ToolItem[] }) {
   const open = useOpenFile();
@@ -125,15 +130,18 @@ function PromptBubble({ prompt }: { prompt: Extract<Item, { kind: "user" }> }) {
     if (el && !full) setClipped(el.scrollHeight > el.clientHeight + 1);
   }, [prompt.text, prompt.images.length, full]);
   return (
-    <div ref={ref} className={`sum-prompt ${full ? "full" : clipped ? "clipped" : ""}`} onClick={() => clipped && setFull(true)}>
-      {prompt.images.length > 0 && (
-        <div className="user-images">
-          {prompt.images.map((src, i) => (
-            <img key={i} src={src} alt="" />
-          ))}
-        </div>
-      )}
-      <UserText text={prompt.text} />
+    <div className="user-msg-row">
+      <div ref={ref} className={`sum-prompt ${full ? "full" : clipped ? "clipped" : ""}`} onClick={() => clipped && setFull(true)}>
+        {prompt.images.length > 0 && (
+          <div className="user-images">
+            {prompt.images.map((src, i) => (
+              <img key={i} src={src} alt="" />
+            ))}
+          </div>
+        )}
+        <UserText text={prompt.text} />
+      </div>
+      <RewindButton id={prompt.id} />
     </div>
   );
 }
@@ -189,10 +197,11 @@ function TurnView({ turn, live, tokens, partial }: { turn: Turn; live: boolean; 
       {prompt?.kind === "command" && <div className="sum-prompt command">{prompt.text}</div>}
       {(body.length > 0 || steps.length > 0 || live) && (
         <div className="sum-card">
-          <Activity steps={steps} live={live} tokens={tokens} partial={live ? partial : ""} />
+          <Activity steps={steps} />
           {!live && <ChangedFiles tools={tools} />}
           {body}
           {footer && !footer.ok && <div className="result err">{footer.text}</div>}
+          {live && <LiveStatus steps={steps} tokens={tokens} partial={partial} />}
         </div>
       )}
     </article>

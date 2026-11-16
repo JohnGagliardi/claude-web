@@ -6,6 +6,7 @@ import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   deleteSession,
+  forkSession,
   getSessionMessages,
   getSubagentMessages,
   listSessions,
@@ -662,6 +663,26 @@ wss.on("connection", (ws) => {
         case "close":
           s?.close();
           break;
+        // Branches a new session from a past point in this one's transcript
+        // (forkSession slices the conversation there, inclusive), leaving the
+        // original untouched — "rewind" undoes nothing, it just opens a fresh
+        // continuation from where the picked message left off.
+        case "rewind": {
+          if (!m.sessionId) throw new Error("This session hasn't started yet, so there's nothing to rewind to.");
+          const base = typeof m.title === "string" && m.title.trim() ? m.title.trim() : undefined;
+          const { sessionId: newId } = await forkSession(m.sessionId, {
+            dir: m.cwd,
+            upToMessageId: m.uuid,
+            title: base ? `${base} (rewind)` : undefined,
+          });
+          const session = startSession({ cwd: m.cwd, resume: newId });
+          ws.send(JSON.stringify({ t: "started", ref: m.ref, session: session.summary() }));
+          void session.sessionIdReady().then((id) => {
+            if (id) updateSessionMeta(id, { pinned: true, cwd: m.cwd });
+            broadcast({ t: "sessions-changed" });
+          });
+          break;
+        }
         case "side": {
           const session = await startSide({ title: m.title, prompt: m.text, cwd: m.cwd, worktree: m.worktree, parentKey: m.parentKey, parentSessionId: m.parentSessionId });
           ws.send(JSON.stringify({ t: "side-started", ref: m.ref, session }));
@@ -674,6 +695,9 @@ wss.on("connection", (ws) => {
         }
         case "term:input":
           terminals.write(m.id, m.data);
+          break;
+        case "term:run":
+          terminals.runFile(m.id, m.command);
           break;
         case "term:resize":
           terminals.resize(m.id, m.cols, m.rows);

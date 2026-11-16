@@ -5,17 +5,40 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { socket, type TerminalInfo } from "../api";
 
+// Background/foreground/cursor follow the app's own light/dark theme; the 16
+// ANSI colors below don't (real terminal apps keep these theme-invariant too,
+// since programs rely on them meaning the same thing — red for errors, etc.
+// regardless of the chrome around them). This is VS Code's integrated
+// terminal palette — chosen for being a well-tested, readable default rather
+// than inventing one.
+const ANSI = {
+  black: "#000000", red: "#cd3131", green: "#0dbc79", yellow: "#e5e510",
+  blue: "#2472c8", magenta: "#bc3fbc", cyan: "#11a8cd", white: "#e5e5e5",
+  brightBlack: "#666666", brightRed: "#f14c4c", brightGreen: "#23d18b", brightYellow: "#f5f543",
+  brightBlue: "#3b8eea", brightMagenta: "#d670d6", brightCyan: "#29b8db", brightWhite: "#ffffff",
+};
+
 const theme = () => {
   const css = getComputedStyle(document.documentElement);
   const v = (n: string) => css.getPropertyValue(n).trim();
-  return { background: v("--card"), foreground: v("--text"), cursor: v("--accent"), selectionBackground: "#88888855" };
+  return { background: v("--card"), foreground: v("--text"), cursor: v("--accent"), selectionBackground: "#88888855", ...ANSI };
 };
 
 function XTerm({ id }: { id: string }) {
   const host = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const term = new Terminal({ fontFamily: "Cascadia Code, Consolas, monospace", fontSize: 13, theme: theme(), scrollback: 5000, cursorBlink: true });
+    const term = new Terminal({
+      fontFamily: "Cascadia Code, Consolas, monospace",
+      fontSize: 13,
+      theme: theme(),
+      scrollback: 5000,
+      cursorBlink: true,
+      // A little extra breathing room between lines/characters — xterm.js
+      // defaults to 1/0, which reads as cramped next to a real terminal app.
+      lineHeight: 1.15,
+      letterSpacing: 0.3,
+    });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
