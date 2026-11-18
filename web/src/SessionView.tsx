@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent } from "react";
-import { api, defaultModelName, pickableModels, socket, type Bootstrap, type Catalog, type LiveSummary, type RawMsg } from "./api";
+import { api, defaultModelName, pickableModels, socket, type Bootstrap, type Catalog, type ElicitationReply, type LiveSummary, type RawMsg } from "./api";
 import { buildItems, latestTodos } from "./transcript";
 import { Transcript } from "./components/Transcript";
 import { SummaryView } from "./components/SummaryView";
 import { Composer, type Attachment, type ComposerSettings } from "./components/Composer";
 import { PermissionCard, type Reply } from "./components/Permission";
+import { ElicitationCard } from "./components/Elicitation";
 import { SidePane, parseFileRef, type OpenFile, type PaneKind } from "./components/SidePane";
 import { BackgroundTasks, InfoPane } from "./components/InfoPane";
 import { ChatIcon, CloseIcon, DiffIcon, FolderIcon, GlobeIcon, RailIcon, RestartIcon, TasksIcon, TerminalIcon } from "./components/Icons";
@@ -266,6 +267,7 @@ export function SessionView(props: {
   };
 
   const reply = (id: string, r: Reply) => current && socket.send({ t: "permission", key: current.key, id, reply: r });
+  const replyElicitation = (id: string, r: ElicitationReply) => current && socket.send({ t: "elicitation", key: current.key, id, result: r });
 
   // Kills the live process (if any) and resumes the same conversation in a
   // fresh one — for when a session is stuck and Stop doesn't help.
@@ -433,9 +435,9 @@ export function SessionView(props: {
         <RewindContext.Provider value={view.sessionId ? rewindTo : undefined}>
           <ReplyContext.Provider value={{ send: (t) => void send(t), running }}>
             {summary && !props.compact ? (
-              <SummaryView items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} compacting={compacting} />
+              <SummaryView items={items} partial={partial} running={running} tokens={tokens} pendingCount={(current?.pending.length ?? 0) + (current?.elicitations.length ?? 0)} compacting={compacting} />
             ) : (
-              <Transcript items={items} partial={partial} running={running} tokens={tokens} pendingCount={current?.pending.length ?? 0} compacting={compacting} />
+              <Transcript items={items} partial={partial} running={running} tokens={tokens} pendingCount={(current?.pending.length ?? 0) + (current?.elicitations.length ?? 0)} compacting={compacting} />
             )}
           </ReplyContext.Provider>
         </RewindContext.Provider>
@@ -458,6 +460,7 @@ export function SessionView(props: {
           </div>
         )}
         {current?.pending.map((p) => <PermissionCard key={p.id} p={p} onReply={(r) => reply(p.id, r)} />)}
+        {current?.elicitations.map((p) => <ElicitationCard key={p.id} p={p} onReply={(r) => replyElicitation(p.id, r)} />)}
         <Composer
           running={running}
           settings={settings}

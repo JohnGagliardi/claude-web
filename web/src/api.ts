@@ -30,6 +30,23 @@ export type PendingPermission = {
   blockedPath?: string;
 };
 
+// An MCP server asking mid-call for something only a human can give it
+// (most commonly "open this URL to finish signing in"). See
+// PendingElicitation in server/live.ts.
+export type PendingElicitation = {
+  id: string;
+  serverName: string;
+  message: string;
+  mode?: "form" | "url";
+  url?: string;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  requestedSchema?: Record<string, unknown>;
+};
+
+export type ElicitationReply = { action: "accept" | "decline"; content?: Record<string, unknown> };
+
 export type LiveSummary = {
   key: string;
   sessionId?: string;
@@ -40,6 +57,7 @@ export type LiveSummary = {
   effort?: Effort;
   appliedEffort?: Effort | null;
   pending: PendingPermission[];
+  elicitations: PendingElicitation[];
   error?: string;
   sideChat?: boolean;
   // Remote Control: also shown in claude.ai/code and the Claude app.

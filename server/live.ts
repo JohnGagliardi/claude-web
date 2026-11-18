@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   query,
   type EffortLevel,
+  type ElicitationRequest,
+  type ElicitationResult,
   type Options,
   type PermissionMode,
   type PermissionResult,
@@ -57,6 +59,23 @@ export type PendingPermission = {
   blockedPath?: string;
 };
 
+// An MCP server asking mid-call for something only a human can give it —
+// most commonly "open this URL to finish signing in" (mode "url"), or
+// structured form input (mode "form"). Distinct from canUseTool: this isn't
+// about permission to run a tool, it's the tool itself asking the user for
+// input while it runs.
+export type PendingElicitation = {
+  id: string;
+  serverName: string;
+  message: string;
+  mode?: "form" | "url";
+  url?: string;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  requestedSchema?: Record<string, unknown>;
+};
+
 export type LiveSummary = {
   key: string;
   sessionId?: string;
@@ -68,6 +87,7 @@ export type LiveSummary = {
   // The effort actually sent once defaults are resolved; null when the model takes none.
   appliedEffort?: EffortLevel | null;
   pending: PendingPermission[];
+  elicitations: PendingElicitation[];
   error?: string;
   // A side chat: a fork that stays out of the sidebar.
   sideChat?: boolean;
@@ -125,6 +145,7 @@ export class LiveSession {
   private readonly input = new InputQueue();
   private readonly q: Query;
   private readonly pending = new Map<string, PendingPermission & { resolve: (r: PermissionResult) => void }>();
+  private readonly elicitations = new Map<string, PendingElicitation & { resolve: (r: ElicitationResult) => void }>();
 
   constructor(readonly opts: StartOptions, private readonly emit: (e: LiveEvent) => void) {
     this.sessionId = opts.fork ? undefined : opts.resume;
@@ -147,6 +168,7 @@ export class LiveSession {
         systemPrompt: { type: "preset", preset: "claude_code" },
         canUseTool: (toolName, input, { signal, suggestions, blockedPath }) =>
           this.askPermission(toolName, input, signal, suggestions, blockedPath),
+        onElicitation: (request, { signal }) => this.askElicitation(request, signal),
       },
     });
     void this.pump();
@@ -163,6 +185,7 @@ export class LiveSession {
       effort: this.effort,
       appliedEffort: this.appliedEffort,
       pending: [...this.pending.values()].map(({ resolve: _r, ...p }) => p),
+      elicitations: [...this.elicitations.values()].map(({ resolve: _r, ...p }) => p),
       error: this.error,
       sideChat: this.opts.fork || undefined,
       remote: this.remote,
@@ -296,8 +319,39 @@ export class LiveSession {
     }
   }
 
+  private askElicitation(request: ElicitationRequest, signal: AbortSignal): Promise<ElicitationResult> {
+    return new Promise((resolve) => {
+      const id = randomUUID();
+      const settle = (r: ElicitationResult) => {
+        if (!this.elicitations.delete(id)) return;
+        resolve(r);
+        this.changed();
+      };
+      this.elicitations.set(id, {
+        id,
+        serverName: request.serverName,
+        message: request.message,
+        mode: request.mode,
+        url: request.url,
+        title: request.title,
+        displayName: request.displayName,
+        description: request.description,
+        requestedSchema: request.requestedSchema,
+        resolve: settle,
+      });
+      signal.addEventListener("abort", () => settle({ action: "cancel" }));
+      this.changed();
+    });
+  }
+
+  answerElicitation(id: string, result: ElicitationResult) {
+    this.lastActive = Date.now();
+    this.elicitations.get(id)?.resolve(result);
+  }
+
   async interrupt() {
     for (const p of this.pending.values()) p.resolve({ behavior: "deny", message: "Interrupted", interrupt: true });
+    for (const e of this.elicitations.values()) e.resolve({ action: "cancel" });
     await this.q.interrupt();
   }
 

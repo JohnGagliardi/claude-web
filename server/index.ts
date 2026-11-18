@@ -651,6 +651,11 @@ wss.on("connection", (ws) => {
         case "permission":
           s?.answerPermission(m.id, m.reply);
           break;
+        // An MCP server mid-call asking the user for something (e.g. "open
+        // this URL to sign in") — see PendingElicitation in live.ts.
+        case "elicitation":
+          s?.answerElicitation(m.id, m.result);
+          break;
         case "interrupt":
           await s?.interrupt();
           break;
