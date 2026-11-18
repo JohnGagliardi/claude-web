@@ -101,6 +101,10 @@ export function SessionView(props: {
   const [summary, setSummary] = useState(() => stored("viewMode") !== "console");
   useEffect(() => store("viewMode", summary ? "summary" : "console"), [summary]);
   const [sideChat, setSideChat] = useState<View | undefined>();
+  // "/mcp" closes whatever pane is open and expands the Connectors card in
+  // the info column instead — that card now covers what the CLI's
+  // interactive /mcp menu is actually used for (status, reconnect, tools).
+  const [mcpOpen, setMcpOpen] = useState(false);
   const [openFile, setOpenFile] = useState<OpenFile | undefined>();
   const [previewFile, setPreviewFile] = useState<OpenFile | undefined>();
   const [refresh, setRefresh] = useState(0);
@@ -234,8 +238,12 @@ export function SessionView(props: {
 
   const send = async (text: string, attachments: Attachment[] = []) => {
     // "/mcp" here would just hit the chat's own non-interactive fallback
-    // text; redirect it to a real interactive CLI in the terminal instead.
-    if (text.trim() === "/mcp" && !attachments.length) return openMcpTerminal();
+    // text; show the Connectors card instead of sending it to Claude.
+    if (text.trim() === "/mcp" && !attachments.length) {
+      setPane(null);
+      setMcpOpen(true);
+      return;
+    }
     let content: string | unknown[] = text;
     if (attachments.length) {
       try {
@@ -349,45 +357,6 @@ export function SessionView(props: {
     },
     [boot.terminals, view.cwd],
   );
-
-  // Typing "/mcp" opens a dedicated terminal running a fresh `claude` CLI and
-  // types "/mcp" into it once it's up: the real interactive menu only renders
-  // against an actual TTY, which the chat's own non-interactive /mcp can't
-  // give you. Always a new terminal (never reused), since this types into it
-  // without knowing what else might already be running there.
-  const openMcpTerminal = useCallback(() => {
-    const ref = crypto.randomUUID();
-    const off = socket.on((m) => {
-      if (m.t !== "term:opened" || m.ref !== ref) return;
-      off();
-      const id = m.id;
-      setTerminal(id);
-      setPane("terminal");
-      socket.send({ t: "term:input", id, data: "claude\r" });
-
-      // The shell's own echo of what we just typed counts as "output," so a
-      // naive wait-for-output-then-settle races claude's actual startup and
-      // fires too early. A directory's first-ever bare launch also shows a
-      // one-time "do you trust this folder" prompt defaulted to "No, exit" —
-      // sending Enter blind would hit that and quit claude outright. So:
-      // check the buffered output for that prompt's text, confirm it if
-      // present (Down, Enter -> "Yes, I trust this folder"), then give the
-      // interactive UI time to finish loading before typing /mcp.
-      let buf = "";
-      const offData = socket.on((e) => {
-        if (e.t === "term:data" && e.id === id) buf += e.data;
-      });
-      setTimeout(() => {
-        const trusted = /trust this folder/i.test(buf);
-        if (trusted) socket.send({ t: "term:input", id, data: "\x1b[B\r" });
-        setTimeout(() => {
-          offData();
-          socket.send({ t: "term:input", id, data: "/mcp\r" });
-        }, trusted ? 3500 : 2000);
-      }, 1800);
-    });
-    socket.send({ t: "term:open", ref, cwd: view.cwd });
-  }, [view.cwd]);
 
   // A "Rewind here" click branches a new session from that point
   // (forkSession slices the transcript there) — non-destructive on disk —
@@ -612,6 +581,8 @@ export function SessionView(props: {
                 onOpenSettings={props.onOpenSettings}
                 onToast={props.onToast}
                 onRunInTerminal={runInTerminal}
+                connectorsOpen={mcpOpen}
+                onConnectorsToggle={() => setMcpOpen((o) => !o)}
               />
             </aside>
           )}

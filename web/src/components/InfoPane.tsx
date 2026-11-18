@@ -15,7 +15,12 @@ type ContextUsage = {
   memoryFiles: { path: string; tokens: number }[];
   mcpTools: { name: string; serverName: string; tokens: number }[];
 };
-type McpServer = { name: string; status: "connected" | "failed" | "needs-auth" | "pending" | "disabled"; error?: string };
+type McpServer = {
+  name: string;
+  status: "connected" | "failed" | "needs-auth" | "pending" | "disabled";
+  error?: string;
+  tools?: { name: string; description?: string }[];
+};
 type Failed = { error: string };
 type Info = { context: ContextUsage | Failed; mcp: McpServer[] | Failed };
 type Task = { task_id: string; task_type: string; description: string; ambient?: boolean };
@@ -33,11 +38,15 @@ const KIND_ORDER: Record<Category["kind"], number> = { used: 0, buffer: 1, free:
 // The app's own tools server isn't a connector the user set up.
 const INTERNAL_SERVERS = new Set(["claude-web"]);
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+// Uncontrolled by default (each card owns its own open state); passing
+// `open`/`onToggle` lets a caller force a specific card open from outside,
+// e.g. "/mcp" expanding Connectors.
+function Card({ title, children, open: openProp, onToggle }: { title: string; children: ReactNode; open?: boolean; onToggle?: () => void }) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = openProp ?? localOpen;
   return (
     <section className="card">
-      <button className="card-head" onClick={() => setOpen(!open)}>
+      <button className="card-head" onClick={onToggle ?? (() => setLocalOpen(!localOpen))}>
         {title}
         <span className={`card-chev ${open ? "" : "closed"}`}>⌄</span>
       </button>
@@ -83,6 +92,10 @@ export function InfoPane(props: {
   onOpenSettings?: () => void;
   onToast: (t: string) => void;
   onRunInTerminal: (command: string) => void;
+  // Lets "/mcp" in the composer force this card open from outside, instead
+  // of each Card instance owning open/closed state no one else can reach.
+  connectorsOpen?: boolean;
+  onConnectorsToggle?: () => void;
 }) {
   const { live, log } = props;
   const [info, setInfo] = useState<Info | null>(null);
@@ -229,7 +242,7 @@ export function InfoPane(props: {
         )}
       </Card>
 
-      <Card title="Connectors">
+      <Card title="Connectors" open={props.connectorsOpen} onToggle={props.onConnectorsToggle}>
         {!live ? (
           <div className="muted">Shows while the session is running.</div>
         ) : !servers ? (
@@ -238,25 +251,12 @@ export function InfoPane(props: {
           <div className="muted">No connectors.</div>
         ) : (
           <>
-            {connected.map((s) => (
-              <div key={s.name} className="env-row">
-                <span className="conn-tile">{s.name.replace(/^claude\.ai /, "")[0]?.toUpperCase()}</span>
-                <span className="env-name">{s.name.replace(/^claude\.ai /, "")}</span>
-              </div>
+            {[...connected, ...notConnected].map((s) => (
+              <ConnectorRow key={s.name} s={s} live={live} onToast={props.onToast} onUpdate={(mcp) => setInfo((i) => (i ? { ...i, mcp } : i))} />
             ))}
-            {notConnected.map((s) => (
-              <div key={s.name} className="env-row" title={s.error}>
-                <span className="conn-tile off">{s.name.replace(/^claude\.ai /, "")[0]?.toUpperCase()}</span>
-                <span className="env-name">
-                  {s.name.replace(/^claude\.ai /, "")} <span className="muted small">· {s.error || s.status}</span>
-                </span>
-              </div>
-            ))}
-            {notConnected.length > 0 && (
-              <button className="link small conn-check" onClick={() => props.onRunInTerminal("claude mcp list")}>
-                <TerminalIcon /> Check in terminal
-              </button>
-            )}
+            <button className="link small conn-check" onClick={() => props.onRunInTerminal("claude mcp list")}>
+              <TerminalIcon /> Full CLI in terminal
+            </button>
           </>
         )}
       </Card>
@@ -284,6 +284,57 @@ export function InfoPane(props: {
       <Card title="Background tasks">
         <BackgroundTasks live={live} log={log} onToast={props.onToast} />
       </Card>
+    </div>
+  );
+}
+
+// One connector row: status, a Reconnect action for anything not connected,
+// an enable/disable switch, and (once connected) its tool list — this is
+// what used to require shelling out to the CLI's interactive /mcp menu.
+function ConnectorRow({ s, live, onToast, onUpdate }: { s: McpServer; live: LiveSummary; onToast: (t: string) => void; onUpdate: (mcp: McpServer[]) => void }) {
+  const [busy, setBusy] = useState(false);
+  const label = s.name.replace(/^claude\.ai /, "");
+  const connected = s.status === "connected";
+  const disabled = s.status === "disabled";
+  const act = (body: Record<string, unknown>) => {
+    if (busy) return;
+    setBusy(true);
+    void api<McpServer[]>(`/live/${live.key}/mcp`, { json: { name: s.name, ...body } })
+      .then(onUpdate)
+      .catch((e) => onToast(e.message))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div>
+      <div className="env-row" title={s.error}>
+        <span className={`conn-tile ${connected ? "" : "off"}`}>{label[0]?.toUpperCase()}</span>
+        <span className="env-name">
+          {label}
+          {!connected && <span className="muted small"> · {s.error || s.status}</span>}
+        </span>
+        {!connected && !disabled && (
+          <button className="link small" disabled={busy} onClick={() => act({ reconnect: true })}>
+            Reconnect
+          </button>
+        )}
+        <button
+          className={`switch ${disabled ? "" : "on"}`}
+          role="switch"
+          aria-checked={!disabled}
+          aria-label={`${label} enabled`}
+          disabled={busy}
+          onClick={() => act({ enabled: disabled })}
+        />
+      </div>
+      {!!s.tools?.length && (
+        <Expander label="Tools" count={s.tools.length}>
+          {s.tools.map((t) => (
+            <div key={t.name} className="ctx-row" title={t.description}>
+              <span className="ctx-name mono">{t.name}</span>
+            </div>
+          ))}
+        </Expander>
+      )}
     </div>
   );
 }
