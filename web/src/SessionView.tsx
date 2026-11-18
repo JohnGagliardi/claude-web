@@ -67,6 +67,10 @@ export function SessionView(props: {
   onClose?: () => void;
   onChange: (v: View) => void;
   onOpenSide: (v: Omit<View, "id">) => void;
+  // Rewind replaces this specific pane in place (fresh id, so it fully
+  // remounts and drops this session's old local state) rather than opening
+  // the rewound session beside it.
+  onRewind: (paneId: string, next: Omit<View, "id">) => void;
   onToast: (t: string) => void;
   // A side chat renders as a bare transcript and composer inside its pane.
   compact?: boolean;
@@ -120,7 +124,15 @@ export function SessionView(props: {
     const { sessionId, cwd } = viewRef.current;
     if (!sessionId) return;
     void api<RawMsg[]>(`/sessions/${sessionId}/messages?dir=${encodeURIComponent(cwd)}`)
-      .then(setPrior)
+      .then((msgs) => {
+        setPrior(msgs);
+        // Once the real transcript has caught up, drop the optimistic
+        // "local-<timestamp>" placeholder send() pushed for immediate
+        // feedback — prior now has the real entry (with a real uuid, which
+        // is what RewindButton needs), so the placeholder would otherwise
+        // just linger forever as a duplicate with no rewind option.
+        setLiveLog((log) => log.filter((m) => !m.uuid?.startsWith("local-")));
+      })
       .catch((e) => props.onToast(String(e.message)));
   };
 
@@ -171,6 +183,7 @@ export function SessionView(props: {
           }
           if (msg.type === "assistant" && !msg.parent_tool_use_id) setPartial("");
           setLiveLog((log) => [...log, msg]);
+          if (msg.type === "result") loadPrior();
           if (msg.type === "result" && viewRef.current.sessionId && document.visibilityState === "visible") {
             setTimeout(() => void api(`/sessions/${viewRef.current.sessionId}/meta`, { json: { unread: false } }), 500);
           }
@@ -376,23 +389,27 @@ export function SessionView(props: {
     socket.send({ t: "term:open", ref, cwd: view.cwd });
   }, [view.cwd]);
 
-  // A "Rewind here" click on a past message branches a new session from that
-  // point (forkSession slices the transcript there), leaving this session
-  // untouched. Opens beside it, like a side chat, so both stay visible.
+  // A "Rewind here" click branches a new session from that point
+  // (forkSession slices the transcript there) — non-destructive on disk —
+  // but takes over this pane in place rather than opening beside it: the
+  // old live process is closed, and this pane gets a fresh id so it fully
+  // remounts onto the forked session instead of mixing its state in.
   const rewindTo = useCallback(
     (uuid: string) => {
       if (!view.sessionId) return;
       const info = boot.sessions.find((s) => s.sessionId === view.sessionId);
       const title = info?.customTitle || info?.summary || view.initialTitle;
       const ref = crypto.randomUUID();
+      const oldKey = current?.key;
       const off = socket.on((m) => {
         if (m.t !== "started" || m.ref !== ref) return;
         off();
-        props.onOpenSide({ liveKey: m.session.key, sessionId: m.session.sessionId, cwd: m.session.cwd });
+        if (oldKey) socket.send({ t: "close", key: oldKey });
+        props.onRewind(view.id, { liveKey: m.session.key, sessionId: m.session.sessionId, cwd: m.session.cwd });
       });
       socket.send({ t: "rewind", ref, sessionId: view.sessionId, cwd: view.cwd, uuid, title });
     },
-    [view.sessionId, view.cwd, view.initialTitle, boot.sessions, props.onOpenSide],
+    [view.sessionId, view.cwd, view.id, view.initialTitle, boot.sessions, current?.key, props.onRewind],
   );
 
   // The side chat forks this session, so it's created only once the session
@@ -572,6 +589,7 @@ export function SessionView(props: {
                         onFocus={() => {}}
                         onChange={setSideChat}
                         onOpenSide={props.onOpenSide}
+                        onRewind={(_, next) => setSideChat({ ...next, id: crypto.randomUUID() })}
                         onToast={props.onToast}
                       />
                     ) : (

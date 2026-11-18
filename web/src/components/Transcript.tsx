@@ -282,7 +282,7 @@ export function RewindButton({ id }: { id: string }) {
   const rewind = useRewind();
   if (!rewind || !REAL_UUID.test(id)) return null;
   return (
-    <button className="link small msg-rewind" title="Branch a new session from here, discarding everything after this message" onClick={() => rewind(id)}>
+    <button className="link small msg-rewind" title="Rewind this session to here, discarding everything after this message" onClick={() => rewind(id)}>
       ⟲ Rewind here
     </button>
   );

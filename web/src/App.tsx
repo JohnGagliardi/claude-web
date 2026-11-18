@@ -222,6 +222,13 @@ export function App() {
 
   const updatePane = useCallback((v: View) => setPanes((ps) => ps.map((p) => (p.id === v.id ? v : p))), []);
   const openSide = useCallback((v: Omit<View, "id">) => open(v, true), [open]);
+  // Rewind overrides the pane it was clicked in specifically — a fresh id
+  // forces a clean remount onto the forked session, regardless of which
+  // pane (if any) currently has global focus.
+  const rewindPane = useCallback(
+    (paneId: string, next: Omit<View, "id">) => setPanes((ps) => ps.map((p) => (p.id === paneId ? { ...next, id: newId() } : p))),
+    [],
+  );
 
   const useWorktree = !!boot?.settings.newSessionWorktree;
 
@@ -325,6 +332,7 @@ export function App() {
               onClose={panes.length > 1 ? () => (setPanes((ps) => ps.filter((p) => p.id !== v.id)), setFocus(0)) : undefined}
               onChange={updatePane}
               onOpenSide={openSide}
+              onRewind={rewindPane}
               onToast={setToast}
               railHidden={railHidden}
               onOpenSettings={() => setPanel("settings")}
